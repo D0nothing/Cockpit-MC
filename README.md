@@ -42,6 +42,11 @@ reste utilisable avec ses données de démonstration. `NEXT_PUBLIC_API_URL` rest
 acceptée pour compatibilité. Une réponse HTTP 401 sur l'URL de preview provient
 de la protection Vercel, pas de l'application.
 
+L'API peut être déployée dans un second projet Vercel avec **Root Directory**
+réglé sur `apps/api`. Elle nécessite `DATABASE_URL` pour les routes métier et
+accepte `WEB_ORIGIN` pour autoriser le domaine du cockpit via CORS. Sa sonde est
+disponible sur `/api/health` même lorsque PostgreSQL n'est pas encore configuré.
+
 ## État du périmètre
 
 Cette fondation livre le modèle PostgreSQL, le dashboard, le détail d’un ticket, la machine à états, l’édition/validation des specs, la double validation, le lancement contrôlé de GitHub Actions et l’audit hash-chain. Voir [l’architecture](docs/ARCHITECTURE.md) pour les frontières de sécurité et les décisions requises avant production.

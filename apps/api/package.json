@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "nest start --watch",
+    "postinstall": "npm --prefix ../../packages/contracts run build && prisma generate",
     "prebuild": "npm --prefix ../../packages/contracts run build",
     "build": "nest build",
     "test": "vitest run",

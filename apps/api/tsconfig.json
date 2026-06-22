@@ -5,5 +5,5 @@
     "experimentalDecorators": true, "emitDecoratorMetadata": true,
     "baseUrl": ".", "incremental": true, "strictPropertyInitialization": false
   },
-  "include": ["src", "prisma"]
+  "include": ["src", "api", "prisma"]
 }
