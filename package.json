@@ -5,7 +5,7 @@
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev -w @vistory/api\" \"npm:dev -w @vistory/web\"",
-    "build": "npm run build -w @vistory/contracts && npm run build -w @vistory/api && npm run build -w @vistory/web",
+    "build": "npm run build -w @vistory/api && npm run build -w @vistory/web",
     "test": "npm run test -w @vistory/contracts && npm run test -w @vistory/api",
     "lint": "npm run lint -ws --if-present",
     "format": "prettier --write .",

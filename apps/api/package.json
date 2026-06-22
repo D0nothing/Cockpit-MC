@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "nest start --watch",
+    "prebuild": "npm --prefix ../../packages/contracts run build",
     "build": "nest build",
     "test": "vitest run",
     "lint": "eslint src --max-warnings=0",
