@@ -25,6 +25,21 @@ npm test
 npm run build
 ```
 
+## Déploiement Vercel
+
+Le fichier `vercel.json` déploie explicitement le cockpit Next.js situé dans
+`apps/web` et construit d'abord le package partagé `@vistory/contracts`.
+
+Dans les réglages du projet Vercel :
+
+- laisser **Root Directory** vide (racine du dépôt) ;
+- définir `NEXT_PUBLIC_API_URL` avec l'URL publique de l'API, suffixée par `/api` ;
+- désactiver **Deployment Protection** pour les previews qui doivent être publiques.
+
+Sans `NEXT_PUBLIC_API_URL`, le cockpit reste utilisable avec ses données de
+démonstration. Une réponse HTTP 401 sur l'URL de preview provient de la
+protection Vercel, pas de l'application.
+
 ## État du périmètre
 
 Cette fondation livre le modèle PostgreSQL, le dashboard, le détail d’un ticket, la machine à états, l’édition/validation des specs, la double validation, le lancement contrôlé de GitHub Actions et l’audit hash-chain. Voir [l’architecture](docs/ARCHITECTURE.md) pour les frontières de sécurité et les décisions requises avant production.
