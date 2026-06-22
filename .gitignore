@@ -2,6 +2,10 @@ node_modules
 .next
 dist
 coverage
+.vercel
+.agents
+.codex
+*.tsbuildinfo
 .env
 .env.local
 *.log

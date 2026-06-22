@@ -1,10 +1,22 @@
 import { ArrowLeft, Check, ChevronRight, Circle, ExternalLink, FileText, Github, ShieldAlert, Sparkles, UserRound } from 'lucide-react';
 import Link from 'next/link';
-import { demoTickets } from '../../../lib/data';
+import { demoTickets, getApiUrl } from '../../../lib/data';
 
 async function getTicket(id: string) {
-  try { const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api'}/tickets/${id}`, { cache: 'no-store' }); if (!r.ok) throw new Error(); return await r.json(); }
-  catch { return demoTickets.find(t => t.id === id) ?? demoTickets[0]; }
+  const fallback = demoTickets.find(t => t.id === id) ?? demoTickets[0];
+  const apiUrl = getApiUrl(`/tickets/${encodeURIComponent(id)}`);
+  if (!apiUrl) return fallback;
+
+  try {
+    const response = await fetch(apiUrl, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!response.ok) throw new Error();
+    return await response.json();
+  } catch {
+    return fallback;
+  }
 }
 
 export default async function TicketDetail({ params }: { params: Promise<{ id: string }> }) {

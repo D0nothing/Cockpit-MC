@@ -34,12 +34,13 @@ Dans les réglages du projet Vercel :
 
 - définir **Root Directory** sur `apps/web` ;
 - conserver le preset **Next.js** et les commandes détectées automatiquement ;
-- définir `NEXT_PUBLIC_API_URL` avec l'URL publique de l'API, suffixée par `/api` ;
+- définir `API_URL` avec l'URL publique de l'API, suffixée par `/api` ;
 - désactiver **Deployment Protection** pour les previews qui doivent être publiques.
 
-Sans `NEXT_PUBLIC_API_URL`, le cockpit reste utilisable avec ses données de
-démonstration. Une réponse HTTP 401 sur l'URL de preview provient de la
-protection Vercel, pas de l'application.
+Sans `API_URL`, le cockpit n'essaie pas d'appeler `localhost` en production et
+reste utilisable avec ses données de démonstration. `NEXT_PUBLIC_API_URL` reste
+acceptée pour compatibilité. Une réponse HTTP 401 sur l'URL de preview provient
+de la protection Vercel, pas de l'application.
 
 ## État du périmètre
 

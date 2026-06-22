@@ -7,11 +7,36 @@ export const demoTickets: TicketSummary[] = [
   { id: 'demo-128', externalId: 128, title: 'Améliorer les preuves de chaîne d’audit', description: 'Produire une racine Merkle vérifiable.', status: 'ci_running', riskLevel: 'sensitive', labels: ['audit', 'mainchain'], repository: 'vistory-core', assignee: { id: 'alice', name: 'Alice Martin' }, updatedAt: new Date(Date.now() - 144e5).toISOString() },
 ];
 
-export async function getTickets(): Promise<TicketSummary[]> {
+export function getApiUrl(path: string): string | null {
+  const configuredUrl = process.env.API_URL?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim();
+
+  if (!configuredUrl) {
+    if (process.env.NODE_ENV === 'production') return null;
+    return `http://localhost:4000/api${path}`;
+  }
+
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api'}/tickets`, { cache: 'no-store' });
+    const baseUrl = new URL(configuredUrl);
+    if (!['http:', 'https:'].includes(baseUrl.protocol)) return null;
+    return new URL(`${baseUrl.pathname.replace(/\/$/, '')}${path}`, baseUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+export async function getTickets(): Promise<TicketSummary[]> {
+  const apiUrl = getApiUrl('/tickets');
+  if (!apiUrl) return demoTickets;
+
+  try {
+    const response = await fetch(apiUrl, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(4_000),
+    });
     if (!response.ok) throw new Error();
     const rows = await response.json();
     return rows.map((row: any) => ({ ...row, repository: row.project.githubRepository }));
-  } catch { return demoTickets; }
+  } catch {
+    return demoTickets;
+  }
 }
