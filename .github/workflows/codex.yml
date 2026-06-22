@@ -1,0 +1,46 @@
+name: Codex proposal
+on:
+  workflow_dispatch:
+    inputs:
+      ticket_id: { description: Internal ticket identifier, required: true, type: string }
+      branch_name: { description: Dedicated proposal branch, required: true, type: string }
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  propose:
+    if: startsWith(inputs.branch_name, 'codex/ticket-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Create dedicated branch
+        run: git switch -c "${{ inputs.branch_name }}"
+      - name: Fetch validated and sanitized context
+        env:
+          COCKPIT_URL: ${{ secrets.COCKPIT_URL }}
+          COCKPIT_WORKER_TOKEN: ${{ secrets.COCKPIT_WORKER_TOKEN }}
+        run: |
+          test -n "$COCKPIT_URL" && test -n "$COCKPIT_WORKER_TOKEN"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $COCKPIT_WORKER_TOKEN" \
+            "$COCKPIT_URL/api/worker/tickets/${{ inputs.ticket_id }}/context" > /tmp/codex-context.json
+      - name: Run Codex
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          npm install --global @openai/codex
+          jq -r '.prompt' /tmp/codex-context.json | codex exec --full-auto -
+      - name: Test proposal
+        run: npm ci && npm test && npm run build
+      - name: Commit proposal
+        run: |
+          git config user.name "vistory-codex[bot]"
+          git config user.email "vistory-codex[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet || git commit -m "feat: propose changes for ticket ${{ inputs.ticket_id }}"
+          git push --set-upstream origin "${{ inputs.branch_name }}"
+      - name: Open draft pull request
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh pr create --draft --title "Codex proposal · ticket ${{ inputs.ticket_id }}" --body "Proposition générée depuis une spécification validée dans Vistory OS. La revue et la fusion restent entièrement humaines."
+

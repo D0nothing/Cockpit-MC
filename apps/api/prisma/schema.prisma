@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PROJECT_MANAGER
+  ASSIGNEE
+  SECONDARY_VALIDATOR
+}
+
+enum TicketStatus {
+  imported
+  assigned
+  context_ready
+  spec_generating
+  spec_review_required
+  spec_validated
+  second_validation_required
+  ready_for_ai
+  ai_requested
+  ai_running
+  branch_created
+  pr_draft_created
+  ci_running
+  human_review_required
+  done
+  blocked
+  rejected
+}
+
+enum RiskLevel {
+  standard
+  sensitive
+  critical
+}
+
+enum SpecStatus {
+  DRAFT
+  REVIEW_REQUIRED
+  VALIDATED
+  REJECTED
+}
+
+enum ValidationKind {
+  PRIMARY
+  SECONDARY
+}
+
+enum WorkflowMode {
+  MANUAL
+  AI_ANALYSIS
+  CODEX
+}
+
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  role Role
+  assignments Ticket[] @relation("Assignee")
+  validations Validation[]
+  createdAt DateTime @default(now())
+}
+
+model Project {
+  id String @id @default(cuid())
+  name String
+  slug String @unique
+  githubOwner String
+  githubRepository String
+  confluenceSpaceKey String?
+  requireSecondaryForSensitive Boolean @default(true)
+  tickets Ticket[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Ticket {
+  id String @id @default(cuid())
+  externalId Int
+  title String
+  description String @db.Text
+  sourceUrl String?
+  labels String[]
+  status TicketStatus @default(imported)
+  riskLevel RiskLevel @default(standard)
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assigneeId String?
+  assignee User? @relation("Assignee", fields: [assigneeId], references: [id])
+  specification Specification?
+  validations Validation[]
+  workflow WorkflowRun?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([projectId, externalId])
+  @@index([status])
+}
+
+model Specification {
+  id String @id @default(cuid())
+  ticketId String @unique
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  version Int @default(1)
+  content String @db.Text
+  status SpecStatus @default(DRAFT)
+  generatedFromHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Validation {
+  id String @id @default(cuid())
+  ticketId String
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  validatorId String
+  validator User @relation(fields: [validatorId], references: [id])
+  kind ValidationKind
+  approved Boolean
+  comment String?
+  createdAt DateTime @default(now())
+  @@unique([ticketId, validatorId, kind])
+}
+
+model WorkflowRun {
+  id String @id @default(cuid())
+  ticketId String @unique
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  mode WorkflowMode
+  githubRunId String?
+  branchName String?
+  pullRequestUrl String?
+  ciStatus String?
+  agentReport String? @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditEvent {
+  id String @id @default(cuid())
+  occurredAt DateTime @default(now())
+  actorId String
+  action String
+  targetType String
+  targetId String
+  contentHash String
+  previousHash String?
+  integrityHash String @unique
+  metadata Json
+  @@index([occurredAt])
+}
+
+model IntegrityProof {
+  id String @id @default(cuid())
+  fromEventId String
+  toEventId String
+  merkleRoot String
+  chainTransactionId String?
+  anchoredAt DateTime?
+  createdAt DateTime @default(now())
+}
