@@ -27,12 +27,13 @@ npm run build
 
 ## Déploiement Vercel
 
-Le fichier `vercel.json` déploie explicitement le cockpit Next.js situé dans
-`apps/web` et construit d'abord le package partagé `@vistory/contracts`.
+Le fichier `apps/web/vercel.json` déclare explicitement le framework Next.js.
+Le script de build construit d'abord le package partagé `@vistory/contracts`.
 
 Dans les réglages du projet Vercel :
 
-- laisser **Root Directory** vide (racine du dépôt) ;
+- définir **Root Directory** sur `apps/web` ;
+- conserver le preset **Next.js** et les commandes détectées automatiquement ;
 - définir `NEXT_PUBLIC_API_URL` avec l'URL publique de l'API, suffixée par `/api` ;
 - désactiver **Deployment Protection** pour les previews qui doivent être publiques.
 
