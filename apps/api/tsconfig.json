@@ -2,8 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "module": "CommonJS", "outDir": "dist", "sourceMap": true,
-    "experimentalDecorators": true, "emitDecoratorMetadata": true,
     "baseUrl": ".", "incremental": true, "strictPropertyInitialization": false
   },
-  "include": ["src", "api", "prisma"]
+  "include": ["src/audit/audit.ts", "src/github.ts", "src/http.ts", "src/tickets/tickets.ts", "src/**/*.spec.ts", "api", "prisma"]
 }

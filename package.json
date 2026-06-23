@@ -2,20 +2,30 @@
   "name": "vistory-os",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev -w @vistory/api\" \"npm:dev -w @vistory/web\"",
     "build": "npm run build -w @vistory/api && npm run build -w @vistory/web",
     "test": "npm run test -w @vistory/contracts && npm run test -w @vistory/api",
-    "lint": "npm run lint -ws --if-present",
+    "test:unit": "npm run test -w @vistory/contracts && npm run test:unit -w @vistory/api",
+    "test:e2e": "npm run test:e2e -w @vistory/api",
+    "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --write .",
     "db:generate": "npm run prisma:generate -w @vistory/api",
     "db:migrate": "npm run prisma:migrate -w @vistory/api",
     "db:seed": "npm run prisma:seed -w @vistory/api"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "concurrently": "^9.2.1",
-    "prettier": "^3.6.2"
+    "eslint": "^10.5.0",
+    "prettier": "^3.6.2",
+    "typescript-eslint": "^8.62.0"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }
