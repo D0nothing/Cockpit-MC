@@ -44,3 +44,12 @@ export const allowedTransitions: Record<TicketStatus, readonly TicketStatus[]> =
 export function canTransition(from: TicketStatus, to: TicketStatus): boolean {
   return allowedTransitions[from].includes(to);
 }
+
+export * from './domain';
+export * from './read-models';
+export * from './validation';
+export * from './workflow';
+
+// Explicit runtime exports keep CommonJS named-export discovery compatible with Vite.
+export { taskStates, workerRunStates } from './domain';
+export { parseRequestPlan, parseTaskGraph } from './validation';

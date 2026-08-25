@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 
 export type Handler = (request: IncomingMessage, response: ServerResponse) => Promise<void>;
 
@@ -8,6 +9,7 @@ export class HttpError extends Error {
     message: string,
   ) {
     super(message);
+    this.name = 'HttpError';
   }
 }
 
@@ -23,18 +25,16 @@ export function sendJson(response: ServerResponse, statusCode: number, body: unk
 
 export function configureCors(request: IncomingMessage, response: ServerResponse): boolean {
   const origin = request.headers.origin;
-  const allowedOrigins = (process.env.WEB_ORIGIN ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const allowedOrigins = webOrigins();
 
   if (origin && (allowedOrigins.length === 0 ? process.env.NODE_ENV !== 'production' : allowedOrigins.includes(origin))) {
     response.setHeader('Access-Control-Allow-Origin', origin);
     response.setHeader('Vary', 'Origin');
+    response.setHeader('Access-Control-Allow-Credentials', 'true');
   }
 
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Actor-Id');
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Actor-Id,X-Request-Id');
   response.setHeader('Access-Control-Max-Age', '600');
 
   if (request.method === 'OPTIONS') {
@@ -70,6 +70,30 @@ export function requireDatabase() {
   if (!process.env.DATABASE_URL) {
     throw new HttpError(503, 'Database is not configured. Set DATABASE_URL before using business routes.');
   }
+}
+
+export function authorizeCockpit(request: IncomingMessage, sessionLogin?: string): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (sessionLogin) {
+    if (!['GET', 'HEAD'].includes(request.method ?? 'GET')) {
+      const origin = request.headers.origin;
+      if (!origin || !webOrigins().includes(origin)) throw new HttpError(403, 'Request origin is not authorized');
+    }
+    return;
+  }
+  const expected = process.env.COCKPIT_ACCESS_TOKEN;
+  const authorization = Array.isArray(request.headers.authorization) ? request.headers.authorization[0] : request.headers.authorization;
+  const received = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!expected || expected.length < 32 || received.length !== expected.length || !timingSafeEqual(Buffer.from(received), Buffer.from(expected))) {
+    throw new HttpError(401, 'Unauthorized');
+  }
+}
+
+function webOrigins(): string[] {
+  return (process.env.WEB_ORIGIN ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 export function cleanPromptValue(value: string): string {

@@ -1,4 +1,18 @@
-import type { TicketSummary } from '@vistory/contracts';
+import {
+  taskStates,
+  workerRunStates,
+  type ProjectSummary,
+  type RunSummary,
+  type TaskState,
+  type TicketSummary,
+  type WorkerRunState,
+} from '@software-factory/contracts';
+
+export type SessionRiskLevel = 'standard' | 'sensitive' | 'critical';
+
+export type SessionLaunchResult =
+  | { kind: 'approval'; sessionId: string }
+  | { kind: 'run'; runId: string };
 
 export const demoTickets: TicketSummary[] = [
   {
@@ -9,7 +23,7 @@ export const demoTickets: TicketSummary[] = [
     status: 'second_validation_required',
     riskLevel: 'critical',
     labels: ['security', 'backend'],
-    repository: 'vistory-core',
+    repository: 'factory-demo',
     assignee: { id: 'alice', name: 'Alice Martin' },
     updatedAt: new Date().toISOString(),
   },
@@ -21,7 +35,7 @@ export const demoTickets: TicketSummary[] = [
     status: 'spec_review_required',
     riskLevel: 'standard',
     labels: ['performance', 'frontend'],
-    repository: 'vistory-core',
+    repository: 'factory-demo',
     assignee: { id: 'alice', name: 'Alice Martin' },
     updatedAt: new Date(Date.now() - 36e5).toISOString(),
   },
@@ -33,7 +47,7 @@ export const demoTickets: TicketSummary[] = [
     status: 'assigned',
     riskLevel: 'standard',
     labels: ['github', 'integration'],
-    repository: 'vistory-core',
+    repository: 'factory-demo',
     assignee: { id: 'marc', name: 'Marc Leroy' },
     updatedAt: new Date(Date.now() - 72e5).toISOString(),
   },
@@ -45,7 +59,7 @@ export const demoTickets: TicketSummary[] = [
     status: 'ci_running',
     riskLevel: 'sensitive',
     labels: ['audit', 'mainchain'],
-    repository: 'vistory-core',
+    repository: 'factory-demo',
     assignee: { id: 'alice', name: 'Alice Martin' },
     updatedAt: new Date(Date.now() - 144e5).toISOString(),
   },
@@ -76,6 +90,7 @@ export async function getTicket(id: string): Promise<any> {
   try {
     const response = await fetch(apiUrl, {
       cache: 'no-store',
+      credentials: 'include',
       signal: AbortSignal.timeout(4_000),
     });
     if (!response.ok) throw new Error();
@@ -109,6 +124,7 @@ export async function getTickets(): Promise<TicketSummary[]> {
   try {
     const response = await fetch(apiUrl, {
       cache: 'no-store',
+      credentials: 'include',
       signal: AbortSignal.timeout(4_000),
     });
     if (!response.ok) throw new Error();
@@ -119,4 +135,116 @@ export async function getTickets(): Promise<TicketSummary[]> {
   } catch {
     return demoTickets;
   }
+}
+
+export async function getProjects(): Promise<ProjectSummary[]> {
+  const value = await apiRequest('/projects');
+  if (!Array.isArray(value)) throw new Error('Project list is invalid');
+  return value.map(projectSummary);
+}
+
+export async function getRuns(projectId: string): Promise<RunSummary[]> {
+  const value = await apiRequest(`/runs?projectId=${encodeURIComponent(projectId)}`);
+  if (!Array.isArray(value)) throw new Error('Run list is invalid');
+  return value.map(runSummary);
+}
+
+export async function launchSession(projectId: string, objective: string, riskLevel: SessionRiskLevel): Promise<SessionLaunchResult> {
+  const requestId = crypto.randomUUID();
+  const session = object(await apiRequest('/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ projectId, objective, createdBy: 'user-alice', idempotencyKey: `session-${requestId}`, riskLevel }),
+  }), 'Session');
+  const sessionId = string(session.id, 'Session.id');
+  const planned = object(await apiRequest(`/sessions/${encodeURIComponent(sessionId)}/plan`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, actorId: 'user-alice' }),
+  }), 'Planned session');
+  if (string(planned.state, 'Planned session.state') === 'awaiting_approval') return { kind: 'approval', sessionId };
+  const run = object(await apiRequest(`/sessions/${encodeURIComponent(sessionId)}/runs`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, actorId: 'user-alice', idempotencyKey: `run-${requestId}` }),
+  }), 'Run');
+  const runId = string(run.id, 'Run.id');
+  return { kind: 'run', runId };
+}
+
+export async function apiRequest(path: string, init?: RequestInit): Promise<unknown> {
+  const apiUrl = getApiUrl(path);
+  if (!apiUrl) throw new Error('API is not configured');
+  const response = await fetch(apiUrl, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    cache: 'no-store',
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as unknown;
+    const message = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' ? body.message : `API request failed (${response.status})`;
+    throw new Error(message);
+  }
+  return response.json() as Promise<unknown>;
+}
+
+function projectSummary(value: unknown): ProjectSummary {
+  const input = object(value, 'Project');
+  return {
+    id: string(input.id, 'Project.id'),
+    name: string(input.name, 'Project.name'),
+    slug: string(input.slug, 'Project.slug'),
+    status: choice(input.status, 'Project.status', ['active', 'suspended', 'archived']),
+    profileVersion: integer(input.profileVersion, 'Project.profileVersion'),
+    githubOwner: string(input.githubOwner, 'Project.githubOwner'),
+    githubRepository: string(input.githubRepository, 'Project.githubRepository'),
+  };
+}
+
+function runSummary(value: unknown): RunSummary {
+  const input = object(value, 'Run');
+  const session = object(input.session, 'Run.session');
+  const tasks = array(input.tasks, 'Run.tasks').map((taskValue) => {
+    const task = object(taskValue, 'Run.task');
+    return { state: choice(task.state, 'Run.task.state', taskStates) as TaskState };
+  });
+  return {
+    id: string(input.id, 'Run.id'),
+    projectId: string(input.projectId, 'Run.projectId'),
+    sessionId: string(input.sessionId, 'Run.sessionId'),
+    state: choice(input.state, 'Run.state', workerRunStates) as WorkerRunState,
+    correlationId: string(input.correlationId, 'Run.correlationId'),
+    createdAt: string(input.createdAt, 'Run.createdAt'),
+    updatedAt: string(input.updatedAt, 'Run.updatedAt'),
+    session: { objective: string(session.objective, 'Run.session.objective') },
+    tasks,
+  };
+}
+
+export function object(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${path} is invalid`);
+  return value as Record<string, unknown>;
+}
+
+export function array(value: unknown, path: string): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${path} is invalid`);
+  return value;
+}
+
+export function string(value: unknown, path: string): string {
+  if (typeof value !== 'string') throw new Error(`${path} is invalid`);
+  return value;
+}
+
+export function strings(value: unknown, path: string): string[] {
+  return array(value, path).map((item) => string(item, path));
+}
+
+export function integer(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error(`${path} is invalid`);
+  return value;
+}
+
+export function choice<const T extends readonly string[]>(value: unknown, path: string, choices: T): T[number] {
+  if (typeof value !== 'string' || !(choices as readonly string[]).includes(value)) throw new Error(`${path} is invalid`);
+  return value as T[number];
 }

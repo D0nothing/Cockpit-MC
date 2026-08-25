@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build -w @vistory/web",
+  "buildCommand": "npm run build -w @software-factory/web",
   "outputDirectory": "apps/web/dist",
   "rewrites": [
     {

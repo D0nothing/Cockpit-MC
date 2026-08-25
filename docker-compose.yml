@@ -1,19 +1,18 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
-      POSTGRES_USER: vistory
-      POSTGRES_PASSWORD: vistory
-      POSTGRES_DB: vistory
+      POSTGRES_USER: factory
+      POSTGRES_PASSWORD: factory
+      POSTGRES_DB: software_factory
     ports:
       - "5432:5432"
     volumes:
-      - vistory-postgres:/var/lib/postgresql/data
+      - software-factory-postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vistory"]
+      test: ["CMD-SHELL", "pg_isready -U factory -d software_factory"]
       interval: 5s
       timeout: 5s
       retries: 10
 volumes:
-  vistory-postgres:
-
+  software-factory-postgres:

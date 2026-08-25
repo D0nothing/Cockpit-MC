@@ -1,27 +1,27 @@
 {
-  "name": "@vistory/api",
+  "name": "@software-factory/api",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsx watch api/index.ts",
+    "dev": "tsx watch api/dev.ts",
     "postinstall": "npm --prefix ../../packages/contracts run build && prisma generate",
     "prebuild": "npm --prefix ../../packages/contracts run build",
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run src/audit/audit.service.spec.ts src/create-app.e2e.spec.ts",
-    "test:unit": "vitest run src/audit/audit.service.spec.ts",
-    "test:e2e": "vitest run src/create-app.e2e.spec.ts",
+    "test": "vitest run src/audit/audit.service.spec.ts src/auth/github-single-user.spec.ts src/create-app.e2e.spec.ts src/runs/runs.spec.ts src/planning/planner.spec.ts src/providers/providers.spec.ts src/operations/telemetry.spec.ts src/execution/task-execution.spec.ts src/knowledge/knowledge.spec.ts",
+    "test:unit": "vitest run src/audit/audit.service.spec.ts src/auth/github-single-user.spec.ts src/runs/runs.spec.ts src/planning/planner.spec.ts src/providers/providers.spec.ts src/operations/telemetry.spec.ts src/execution/task-execution.spec.ts src/knowledge/knowledge.spec.ts",
+    "test:e2e": "vitest run src/create-app.e2e.spec.ts src/knowledge/knowledge.e2e.spec.ts",
     "lint": "eslint src api --max-warnings=0",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.15.0",
-    "@vistory/contracts": "*"
+    "@prisma/client": "6.12.0",
+    "@software-factory/contracts": "*"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
-    "prisma": "^6.15.0",
+    "prisma": "6.12.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^4.1.9"
