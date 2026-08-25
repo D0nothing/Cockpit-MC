@@ -1,5 +1,5 @@
 {
-  "name": "@vistory/web",
+  "name": "@software-factory/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,7 +10,7 @@
     "lint": "eslint src lib --max-warnings=0"
   },
   "dependencies": {
-    "@vistory/contracts": "*",
+    "@software-factory/contracts": "*",
     "lucide-react": "^0.542.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

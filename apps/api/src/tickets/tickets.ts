@@ -1,5 +1,5 @@
 import { PrismaClient, RiskLevel, SpecStatus, TicketStatus, ValidationKind, WorkflowMode } from '@prisma/client';
-import { canTransition } from '@vistory/contracts';
+import { canTransition } from '@software-factory/contracts';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { dispatchCodex } from '../github';
 import { cleanPromptValue, HttpError, requireDatabase } from '../http';
@@ -97,13 +97,13 @@ export async function launchWorkflow(prisma: PrismaClient, id: string, body: unk
   if (ticket.riskLevel !== 'standard' && ticket.project.requireSecondaryForSensitive && !ticket.validations.some((validation) => validation.kind === 'SECONDARY' && validation.approved)) throw new HttpError(403, 'Secondary validation is missing');
 
   const branchName = `codex/ticket-${ticket.externalId}-${slug(ticket.title)}`.slice(0, 100);
-  if (mode === WorkflowMode.CODEX) await dispatchCodex(branchName, ticket.id);
+  if (mode === WorkflowMode.CODEX) await dispatchCodex(branchName, ticket.id, ticket.project);
   const status: TicketStatus = mode === WorkflowMode.CODEX ? 'ai_requested' : 'human_review_required';
   await prisma.$transaction([
     prisma.workflowRun.upsert({ where: { ticketId: id }, create: { ticketId: id, mode, branchName: mode === 'CODEX' ? branchName : null }, update: { mode, branchName: mode === 'CODEX' ? branchName : null } }),
     prisma.ticket.update({ where: { id }, data: { status } }),
   ]);
-  await recordAudit(prisma, { actorId, action: 'workflow.launched', targetType: 'ticket', targetId: id, metadata: { mode, branchName: mode === 'CODEX' ? branchName : null } });
+  await recordAudit(prisma, { projectId: ticket.projectId, actorId, action: 'workflow.launched', targetType: 'ticket', targetId: id, metadata: { mode, branchName: mode === 'CODEX' ? branchName : null } });
   return findTicket(prisma, id);
 }
 

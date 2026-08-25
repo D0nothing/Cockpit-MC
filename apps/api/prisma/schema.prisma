@@ -58,110 +58,604 @@ enum WorkflowMode {
   CODEX
 }
 
+enum ProjectStatus {
+  active
+  suspended
+  archived
+}
+
+enum SessionState {
+  created
+  planning
+  awaiting_approval
+  ready
+  running
+  review
+  completed
+  blocked
+  failed
+  cancelled
+}
+
+enum RunState {
+  queued
+  awaiting_approval
+  running
+  blocked
+  review
+  completed
+  failed
+  cancelled
+}
+
+enum RunTaskState {
+  draft
+  blocked
+  ready
+  dispatched
+  running
+  review
+  completed
+  failed
+  cancelled
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+  changes_requested
+  expired
+}
+
+enum ApprovalResult {
+  approved
+  rejected
+  changes_requested
+}
+
+enum RunCommandType {
+  pause
+  resume
+  cancel
+}
+
+enum EpicStatus {
+  planned
+  in_progress
+  review
+  done
+  blocked
+  cancelled
+}
+
+enum TaskDispatchState {
+  queued
+  dispatched
+  running
+  completed
+  failed
+  cancelled
+}
+
+enum FeedbackKind {
+  quality
+  correction
+  risk
+  cost
+}
+
+enum KnowledgeScope {
+  project
+  common
+}
+
+enum KnowledgeCandidateStatus {
+  proposed
+  approved
+  rejected
+  promoted
+}
+
+enum KnowledgeEntryStatus {
+  active
+  revoked
+}
+
 model User {
-  id String @id @default(cuid())
-  email String @unique
-  name String
-  role Role
-  assignments Ticket[] @relation("Assignee")
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String
+  role        Role
+  assignments Ticket[]     @relation("Assignee")
   validations Validation[]
-  createdAt DateTime @default(now())
+  createdAt   DateTime     @default(now())
 }
 
 model Project {
-  id String @id @default(cuid())
-  name String
-  slug String @unique
-  githubOwner String
-  githubRepository String
-  confluenceSpaceKey String?
-  requireSecondaryForSensitive Boolean @default(true)
-  tickets Ticket[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                           String               @id @default(cuid())
+  name                         String
+  slug                         String               @unique
+  legalEntityId                String               @default("unclassified")
+  profileVersion               Int                  @default(1)
+  status                       ProjectStatus        @default(active)
+  memoryNamespace              String               @default("unconfigured")
+  knowledgeNamespace           String               @default("unconfigured")
+  nextTicketNumber             Int                  @default(1000)
+  githubOwner                  String
+  githubRepository             String
+  confluenceSpaceKey           String?
+  requireSecondaryForSensitive Boolean              @default(true)
+  tickets                      Ticket[]
+  epics                        Epic[]
+  workSessions                 WorkSession[]
+  executionRuns                ExecutionRun[]
+  approvalRequests             ApprovalRequest[]
+  taskDispatches               TaskDispatch[]
+  feedbackRecords              FeedbackRecord[]
+  memoryItems                  SessionMemoryItem[]
+  knowledgeCandidates          KnowledgeCandidate[]
+  knowledgeEntries             KnowledgeEntry[]
+  createdAt                    DateTime             @default(now())
+  updatedAt                    DateTime             @updatedAt
 }
 
 model Ticket {
-  id String @id @default(cuid())
-  externalId Int
-  title String
-  description String @db.Text
-  sourceUrl String?
-  labels String[]
-  status TicketStatus @default(imported)
-  riskLevel RiskLevel @default(standard)
-  projectId String
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assigneeId String?
-  assignee User? @relation("Assignee", fields: [assigneeId], references: [id])
-  specification Specification?
-  validations Validation[]
-  workflow WorkflowRun?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String         @id @default(cuid())
+  externalId         Int
+  title              String
+  description        String         @db.Text
+  sourceUrl          String?
+  labels             String[]
+  status             TicketStatus   @default(imported)
+  riskLevel          RiskLevel      @default(standard)
+  projectId          String
+  project            Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  epicId             String?
+  epic               Epic?          @relation(fields: [epicId], references: [id], onDelete: SetNull)
+  sourceSessionId    String?
+  sourceSession      WorkSession?   @relation("PlannedTickets", fields: [sourceSessionId], references: [id], onDelete: SetNull)
+  plannerKey         String?
+  kind               String         @default("implementation")
+  capability         String         @default("engineering")
+  complexity         String         @default("medium")
+  dependsOn          String[]       @default([])
+  acceptanceCriteria String[]       @default([])
+  definitionOfDone   String[]       @default([])
+  assigneeId         String?
+  assignee           User?          @relation("Assignee", fields: [assigneeId], references: [id])
+  specification      Specification?
+  validations        Validation[]
+  workflow           WorkflowRun?
+  runTasks           RunTask[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
   @@unique([projectId, externalId])
+  @@unique([sourceSessionId, plannerKey])
   @@index([status])
+  @@index([projectId, epicId, status])
+}
+
+model Epic {
+  id                 String      @id
+  projectId          String
+  project            Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionId          String
+  session            WorkSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  key                String
+  title              String
+  objective          String      @db.Text
+  expectedOutcome    String      @db.Text
+  acceptanceCriteria String[]
+  status             EpicStatus  @default(planned)
+  sequence           Int
+  tickets            Ticket[]
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@unique([sessionId, key])
+  @@index([projectId, status])
 }
 
 model Specification {
-  id String @id @default(cuid())
-  ticketId String @unique
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  version Int @default(1)
-  content String @db.Text
-  status SpecStatus @default(DRAFT)
+  id                String     @id @default(cuid())
+  ticketId          String     @unique
+  ticket            Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  version           Int        @default(1)
+  content           String     @db.Text
+  status            SpecStatus @default(DRAFT)
   generatedFromHash String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 }
 
 model Validation {
-  id String @id @default(cuid())
-  ticketId String
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  id          String         @id @default(cuid())
+  ticketId    String
+  ticket      Ticket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   validatorId String
-  validator User @relation(fields: [validatorId], references: [id])
-  kind ValidationKind
-  approved Boolean
-  comment String?
-  createdAt DateTime @default(now())
+  validator   User           @relation(fields: [validatorId], references: [id])
+  kind        ValidationKind
+  approved    Boolean
+  comment     String?
+  createdAt   DateTime       @default(now())
+
   @@unique([ticketId, validatorId, kind])
 }
 
 model WorkflowRun {
-  id String @id @default(cuid())
-  ticketId String @unique
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  mode WorkflowMode
-  githubRunId String?
-  branchName String?
+  id             String       @id @default(cuid())
+  ticketId       String       @unique
+  ticket         Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  mode           WorkflowMode
+  githubRunId    String?
+  branchName     String?
   pullRequestUrl String?
-  ciStatus String?
-  agentReport String? @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  ciStatus       String?
+  agentReport    String?      @db.Text
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 }
 
 model AuditEvent {
-  id String @id @default(cuid())
-  occurredAt DateTime @default(now())
-  actorId String
-  action String
-  targetType String
-  targetId String
-  contentHash String
-  previousHash String?
-  integrityHash String @unique
-  metadata Json
+  id            String   @id @default(cuid())
+  occurredAt    DateTime @default(now())
+  actorId       String
+  action        String
+  targetType    String
+  targetId      String
+  projectId     String?
+  contentHash   String
+  previousHash  String?
+  integrityHash String   @unique
+  metadata      Json
+
   @@index([occurredAt])
+  @@index([projectId, occurredAt])
 }
 
 model IntegrityProof {
-  id String @id @default(cuid())
-  fromEventId String
-  toEventId String
-  merkleRoot String
+  id                 String    @id @default(cuid())
+  fromEventId        String
+  toEventId          String
+  merkleRoot         String
   chainTransactionId String?
-  anchoredAt DateTime?
-  createdAt DateTime @default(now())
+  anchoredAt         DateTime?
+  createdAt          DateTime  @default(now())
+}
+
+model WorkSession {
+  id               String              @id @default(cuid())
+  projectId        String
+  project          Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  objective        String              @db.Text
+  riskLevel        RiskLevel           @default(standard)
+  state            SessionState        @default(created)
+  version          Int                 @default(1)
+  createdBy        String
+  idempotencyKey   String
+  macroTasks       MacroTask[]
+  epics            Epic[]
+  plannedTickets   Ticket[]            @relation("PlannedTickets")
+  runs             ExecutionRun[]
+  approvalRequests ApprovalRequest[]
+  feedbackRecords  FeedbackRecord[]
+  memoryItems      SessionMemoryItem[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, state])
+}
+
+model MacroTask {
+  id                   String           @id
+  projectId            String
+  sessionId            String
+  session              WorkSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  version              Int
+  objective            String           @db.Text
+  expectedOutcome      String           @db.Text
+  constraints          String[]
+  nonGoals             String[]
+  deliverables         String[]
+  acceptanceCriteria   String[]
+  riskLevel            RiskLevel        @default(standard)
+  requiredApprovals    Int              @default(0)
+  requiredCapabilities String[]
+  budgets              Json
+  graph                TaskGraph?
+  approvalRequest      ApprovalRequest?
+  runs                 ExecutionRun[]
+  createdAt            DateTime         @default(now())
+
+  @@unique([sessionId, version])
+  @@index([projectId, sessionId])
+}
+
+model TaskGraph {
+  id          String         @id
+  projectId   String
+  sessionId   String
+  macroTaskId String         @unique
+  macroTask   MacroTask      @relation(fields: [macroTaskId], references: [id], onDelete: Cascade)
+  version     Int            @default(1)
+  nodes       Json
+  runs        ExecutionRun[]
+  createdAt   DateTime       @default(now())
+
+  @@index([projectId, sessionId])
+}
+
+model ExecutionRun {
+  id             String        @id @default(cuid())
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        WorkSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  macroTaskId    String
+  macroTask      MacroTask     @relation(fields: [macroTaskId], references: [id], onDelete: Restrict)
+  graphId        String
+  graph          TaskGraph     @relation(fields: [graphId], references: [id], onDelete: Restrict)
+  state          RunState      @default(queued)
+  correlationId  String        @unique
+  idempotencyKey String
+  lastSequence   Int           @default(0)
+  tasks          RunTask[]
+  events         RunEvent[]
+  artifacts      RunArtifact[]
+  commands       RunCommand[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, state])
+}
+
+model RunTask {
+  id                String         @id @default(cuid())
+  projectId         String
+  runId             String
+  run               ExecutionRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  ticketId          String?
+  ticket            Ticket?        @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  taskId            String
+  type              String
+  capability        String
+  roleCapability    String
+  complexity        String
+  dependsOn         String[]
+  state             RunTaskState
+  attempt           Int            @default(1)
+  maxAttempts       Int
+  definitionOfReady String[]
+  definitionOfDone  String[]
+  expectedArtifacts String[]
+  dispatches        TaskDispatch[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([runId, taskId, attempt])
+  @@index([projectId, runId, state])
+  @@index([ticketId])
+}
+
+model RunEvent {
+  id            String       @id
+  projectId     String
+  sessionId     String
+  runId         String
+  run           ExecutionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sequence      Int
+  type          String
+  correlationId String
+  causationId   String?
+  actorType     String
+  actorId       String
+  payload       Json
+  occurredAt    DateTime     @default(now())
+
+  @@unique([runId, sequence])
+  @@index([projectId, sessionId, runId])
+}
+
+model RunArtifact {
+  id              String           @id
+  projectId       String
+  sessionId       String
+  runId           String
+  run             ExecutionRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  dispatchId      String?
+  dispatch        TaskDispatch?    @relation(fields: [dispatchId], references: [id], onDelete: SetNull)
+  taskId          String
+  kind            String
+  uri             String
+  mediaType       String
+  contentHash     String
+  feedbackRecords FeedbackRecord[]
+  createdAt       DateTime         @default(now())
+
+  @@index([projectId, runId])
+  @@index([dispatchId])
+}
+
+model FeedbackRecord {
+  id             String              @id @default(cuid())
+  projectId      String
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        WorkSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  runId          String
+  artifactId     String
+  artifact       RunArtifact         @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  authorId       String
+  kind           FeedbackKind
+  rating         Int
+  comment        String              @db.Text
+  idempotencyKey String
+  memoryItem     SessionMemoryItem?
+  candidate      KnowledgeCandidate?
+  createdAt      DateTime            @default(now())
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, sessionId, createdAt])
+  @@index([artifactId])
+}
+
+model SessionMemoryItem {
+  id          String         @id @default(cuid())
+  projectId   String
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionId   String
+  session     WorkSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  feedbackId  String         @unique
+  feedback    FeedbackRecord @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  kind        FeedbackKind
+  content     String         @db.Text
+  contentHash String
+  expiresAt   DateTime
+  createdAt   DateTime       @default(now())
+
+  @@index([projectId, sessionId, expiresAt])
+}
+
+model KnowledgeCandidate {
+  id                String                   @id @default(cuid())
+  projectId         String
+  project           Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  feedbackId        String                   @unique
+  feedback          FeedbackRecord           @relation(fields: [feedbackId], references: [id], onDelete: Restrict)
+  proposedBy        String
+  scope             KnowledgeScope
+  key               String
+  title             String
+  content           String                   @db.Text
+  contentHash       String
+  provenance        Json
+  status            KnowledgeCandidateStatus @default(proposed)
+  requiredApprovals Int
+  expiresAt         DateTime
+  decisions         KnowledgeDecision[]
+  entry             KnowledgeEntry?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([projectId, key, contentHash])
+  @@index([projectId, status, createdAt])
+}
+
+model KnowledgeDecision {
+  id          String             @id @default(cuid())
+  projectId   String
+  candidateId String
+  candidate   KnowledgeCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  approverId  String
+  result      ApprovalResult
+  reason      String
+  decidedAt   DateTime           @default(now())
+
+  @@unique([candidateId, approverId])
+  @@index([projectId, candidateId])
+}
+
+model KnowledgeEntry {
+  id               String               @id @default(cuid())
+  projectId        String
+  project          Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  candidateId      String               @unique
+  candidate        KnowledgeCandidate   @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+  scope            KnowledgeScope
+  namespace        String
+  key              String
+  version          Int
+  content          String               @db.Text
+  contentHash      String
+  provenance       Json
+  status           KnowledgeEntryStatus @default(active)
+  supersedesId     String?              @unique
+  supersedes       KnowledgeEntry?      @relation("KnowledgeVersion", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy     KnowledgeEntry?      @relation("KnowledgeVersion")
+  revokedAt        DateTime?
+  revokedBy        String?
+  revocationReason String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@unique([namespace, key, version])
+  @@index([projectId, status, updatedAt])
+  @@index([scope, status, updatedAt])
+}
+
+model TaskDispatch {
+  id                String            @id @default(cuid())
+  projectId         String
+  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runTaskId         String
+  runTask           RunTask           @relation(fields: [runTaskId], references: [id], onDelete: Cascade)
+  provider          String
+  state             TaskDispatchState @default(queued)
+  idempotencyKey    String
+  actorId           String
+  branchName        String?
+  externalReference String?
+  report            String?           @db.Text
+  error             String?           @db.Text
+  artifacts         RunArtifact[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, state])
+  @@index([runTaskId, createdAt])
+}
+
+model ApprovalRequest {
+  id                String           @id @default(cuid())
+  projectId         String
+  project           Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionId         String
+  session           WorkSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  macroTaskId       String           @unique
+  macroTask         MacroTask        @relation(fields: [macroTaskId], references: [id], onDelete: Cascade)
+  targetVersion     Int
+  riskLevel         RiskLevel
+  requiredApprovals Int
+  requesterId       String
+  status            ApprovalStatus   @default(pending)
+  expiresAt         DateTime
+  decisions         ApprovalRecord[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([projectId, status])
+}
+
+model ApprovalRecord {
+  id                String          @id @default(cuid())
+  projectId         String
+  approvalRequestId String
+  approvalRequest   ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  approverId        String
+  result            ApprovalResult
+  reason            String
+  decidedAt         DateTime        @default(now())
+
+  @@unique([approvalRequestId, approverId])
+  @@index([projectId, approvalRequestId])
+}
+
+model RunCommand {
+  id             String         @id @default(cuid())
+  projectId      String
+  runId          String
+  run            ExecutionRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  idempotencyKey String
+  type           RunCommandType
+  actorId        String
+  resultState    RunState
+  createdAt      DateTime       @default(now())
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, runId])
 }

@@ -9,5 +9,6 @@ coverage
 .env
 .env.local
 *.log
+*.rar
 .DS_Store
 apps/api/prisma/dev.db*

@@ -1,4 +1,6 @@
 name: CI
+permissions:
+  contents: read
 on:
   pull_request:
   push:
@@ -8,18 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
-        env: { POSTGRES_USER: vistory, POSTGRES_PASSWORD: vistory, POSTGRES_DB: vistory }
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env: { POSTGRES_USER: factory, POSTGRES_PASSWORD: factory, POSTGRES_DB: software_factory }
         ports: ['5432:5432']
-        options: --health-cmd "pg_isready -U vistory" --health-interval 5s --health-timeout 5s --health-retries 10
+        options: --health-cmd "pg_isready -U factory" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      DATABASE_URL: postgresql://vistory:vistory@localhost:5432/vistory?schema=public
+      DATABASE_URL: postgresql://factory:factory@localhost:5432/software_factory?schema=public
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run db:generate
+      - run: npm exec -w @software-factory/api -- prisma migrate deploy --schema prisma/schema.prisma
+      - run: npm run lint
       - run: npm test
+      - run: npm run test:e2e
       - run: npm run build
-
+      - run: npm audit --audit-level=high
