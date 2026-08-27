@@ -64,6 +64,12 @@ enum ProjectStatus {
   archived
 }
 
+enum ExternalSyncState {
+  pending
+  succeeded
+  failed
+}
+
 enum SessionState {
   created
   planning
@@ -196,6 +202,7 @@ model Project {
   memoryItems                  SessionMemoryItem[]
   knowledgeCandidates          KnowledgeCandidate[]
   knowledgeEntries             KnowledgeEntry[]
+  externalTicketSyncs          ExternalTicketSync[]
   createdAt                    DateTime             @default(now())
   updatedAt                    DateTime             @updatedAt
 }
@@ -228,6 +235,7 @@ model Ticket {
   validations        Validation[]
   workflow           WorkflowRun?
   runTasks           RunTask[]
+  externalSyncs      ExternalTicketSync[]
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
@@ -235,6 +243,28 @@ model Ticket {
   @@unique([sourceSessionId, plannerKey])
   @@index([status])
   @@index([projectId, epicId, status])
+}
+
+model ExternalTicketSync {
+  id          String            @id @default(cuid())
+  projectId   String
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ticketId    String
+  ticket      Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  provider    String
+  state       ExternalSyncState @default(pending)
+  payloadHash String
+  remoteId    String?
+  remoteUrl   String?
+  failureCode String?
+  attempt     Int               @default(1)
+  requestedBy String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([ticketId, provider])
+  @@unique([projectId, provider, remoteId])
+  @@index([projectId, state, updatedAt])
 }
 
 model Epic {

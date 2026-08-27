@@ -78,6 +78,7 @@ seulement d'un champ fourni par l'appelant.
 | Edge           | Control plane         | Routes API publiées, identité edge, limites et timeout.                    |
 | Control plane  | Navigateur            | Réponses filtrées et flux d'événements expurgé, sans secret ni commande.   |
 | Control plane  | Registre projets      | Identité de service, version attendue, partition et audit.                 |
+| Control plane  | `api.github.com:443`  | HTTPS, dépôt persisté, opération Issues allowlistée, timeout 8 s, réponse bornée et secret serveur. |
 | Administrateur | Plan d'administration | SSO, MFA résistant au phishing, terminal conforme, accès JIT.              |
 | Control plane  | Bus/files             | Identité de service, topics du projet, chiffrement, quotas.                |
 | Worker         | Data plane            | Ressources et opérations du run uniquement, durée bornée.                  |

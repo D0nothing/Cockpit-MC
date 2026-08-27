@@ -49,6 +49,13 @@ describe('api http surface', () => {
     try {
       expect((await fetch(`${baseUrl}/api/projects`)).status).toBe(401);
       expect((await fetch(`${baseUrl}/api/projects`, { headers: { Authorization: `Bearer ${process.env.COCKPIT_ACCESS_TOKEN}` } })).status).toBe(503);
+      const mutation = await fetch(`${baseUrl}/api/feedback`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.COCKPIT_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 'project-alpha', authorId: 'spoofed-user' }),
+      });
+      expect(mutation.status).toBe(403);
+      expect(await mutation.json()).toMatchObject({ message: 'A human session is required for this operation' });
     } finally {
       server.close();
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;

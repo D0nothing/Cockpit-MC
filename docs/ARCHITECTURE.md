@@ -38,6 +38,7 @@ flowchart LR
     LOCAL["Worker simulator<br/>sans effet externe"]
 
     subgraph EXTERNAL["Chemin externe optionnel · refusé par défaut"]
+      GHI["GitHub Issues<br/>ticket + reçu durable"]
       GHA["GitHub Actions"]
       CODEX["OpenAI Codex CLI"]
       PR["Branche codex/*<br/>tests + PR brouillon"]
@@ -57,6 +58,8 @@ flowchart LR
     OPS <--> DB
     ORCH -->|"par défaut"| LOCAL
     LOCAL -->|"rapport + artefact SHA-256"| ORCH
+    HTTP -. "création humaine autorisée" .-> GHI
+    GHI -->|"numéro + URL"| HTTP
     ORCH -. "si explicitement autorisé" .-> GHA
     GHA --> CODEX
     CODEX --> PR
@@ -100,7 +103,9 @@ La machine à états refuse les sauts arbitraires. Le planificateur produit des 
 et des tickets persistés avant tout run. Une `RunTask` référence son `Ticket` et ne
 peut être dispatchée que si elle est prête et si toutes ses dépendances possèdent
 un résultat terminé. Les clés d'idempotence portent les sessions, runs, commandes,
-dispatchs et feedbacks.
+dispatchs et feedbacks. La publication GitHub Issues possède un reçu durable
+`ExternalTicketSync`; un retry après état incertain recherche le marqueur du ticket
+avant toute nouvelle création.
 
 Un workflow Codex historique exige une spécification validée et les approbations
 applicables. Le nouveau `TaskDispatch` produit un reçu et au moins un artefact
@@ -115,7 +120,7 @@ version, supersession, révocation et citation restent persistées.
 
 ## Frontières de sécurité
 
-Les jetons GitHub, Confluence, cockpit et OpenAI ne sont utilisés que côté serveur
+Les jetons GitHub Actions, GitHub Issues, Confluence, cockpit et OpenAI ne sont utilisés que côté serveur
 ou dans les secrets GitHub Actions. Les fournisseurs externes sont désactivés par
 défaut et doivent être explicitement allowlistés. La cible GitHub est lue depuis le
 projet persistant ; le navigateur ne peut pas choisir un autre dépôt. Le contexte

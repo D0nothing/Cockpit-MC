@@ -33,7 +33,7 @@ dans [`MVP_ACCEPTANCE.md`](./MVP_ACCEPTANCE.md).
 | P3 — isolation | sessions, runs, feedbacks, KB, approbations et audit ne fuient pas entre projets | validée localement et E2E |
 | P4 — fournisseur | refus par défaut, cible projet, contexte borné, secret hors read model, reçu explicite | validée hors appel GitHub réel |
 | P5 — identité | OAuth GitHub mono-utilisateur, cookie signé/HttpOnly, login allowlisté, expiration et contrôle d'origine | validée en code pour un pilote privé ; OIDC/RBAC reste bloquant avant plusieurs utilisateurs |
-| P6 — effets externes | dispatch/reçu idempotents présents ; outbox, egress, retry/circuit breaker et compensation | bloquante avant activation réelle |
+| P6 — effets externes | GitHub Issues possède reçu durable, verrou et réconciliation ; outbox générique, egress, retry/circuit breaker et compensation restent requis pour les autres effets | partielle, activation limitée à un dépôt pilote approuvé |
 | P7 — exploitation | sauvegarde/restauration C0/C1, alertes, rétention et astreinte | bloquante |
 | P8 — supply chain | actions et CLI Codex épinglés ; SBOM, provenance, signature et vérification | partielle, bloquante avant release externe |
 | P9 — conformité | `ComplianceContext`, propriétaires, risques et revue juridique | bloquante |
