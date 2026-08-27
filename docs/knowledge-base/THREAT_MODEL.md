@@ -7,7 +7,7 @@ promotion KB gouvernée**, incomplet pour une exploitation externe. Revue : 25 a
 ## Périmètre
 
 La frontière couvre le Connector Gateway de l'API, les configurations par projet,
-les variables serveur et les effets vers GitHub Actions, Confluence ou un
+les variables serveur et les effets vers GitHub Actions, GitHub Issues, Confluence ou un
 fournisseur de modèles. Le navigateur, les tickets, documents, prompts, sorties de
 modèle et réponses fournisseur sont non fiables.
 
@@ -40,7 +40,7 @@ modèle et réponses fournisseur sont non fiables.
 | Effet sur le mauvais dépôt | cible issue du projet et segments GitHub validés | autorisation serveur par identité et mandat |
 | Fuite de secret | présence seulement signalée par booléen, aucune valeur exposée | coffre de secrets et identité de workload courte |
 | SSRF ou redirection | URL GitHub fixe, aucun hôte fourni par le client | proxy d'egress et validation des redirections pour les prochains adaptateurs |
-| Rejeu | clés d'idempotence durables sur sessions, runs, commandes, dispatchs et feedbacks ; reçu d'effet | outbox transactionnelle et retry pour GitHub/Confluence |
+| Rejeu | clés d'idempotence durables sur sessions, runs, commandes, dispatchs et feedbacks ; reçu GitHub Issues persistant, verrou optimiste et réconciliation par marqueur | outbox générique et retry pour les autres effets GitHub/Confluence |
 | Panne ou lenteur | timeout GitHub de 8 s, erreur explicite | retry borné avec jitter, circuit breaker et test d'injection de panne |
 | Confusion inter-projets | ressources filtrées par projet, preuve feedback vérifiée, recherche KB projet/commune, jeton cockpit en production | OIDC/RBAC et tests IDOR sur toutes les routes historiques |
 | Empoisonnement de la KB | mémoire temporaire, proposition explicite, auto-approbation refusée, quorum 1/2, provenance, version et révocation | classification automatique assistée et revue de contenu sensible commune |
@@ -55,6 +55,9 @@ modèle et réponses fournisseur sont non fiables.
 
 - fournisseur externe absent de l'allowlist ;
 - fournisseur activé sans référence de secret ;
+- GitHub Issues sans grant explicite ou sans jeton séparé ;
+- double demande GitHub Issues pendant un effet en cours ;
+- cible GitHub différente du dépôt enregistré dans le projet ;
 - auto-approbation ;
 - lecture ou décision d'approbation depuis un autre projet ;
 - commande invalide ou rejouée avec une autre intention ;

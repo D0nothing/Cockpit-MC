@@ -151,3 +151,35 @@ secrets approuvés et une autorisation humaine séparée.
 - readiness : la production reste non prête si OAuth GitHub et jeton serveur sont
   tous deux absents ;
 - procédure : [`GITHUB_SINGLE_USER_DEPLOYMENT.md`](GITHUB_SINGLE_USER_DEPLOYMENT.md).
+
+## Jalon 7 — Synchronisation GitHub Issues
+
+### Critères
+
+- `github-issues` est désactivé par défaut et utilise un jeton serveur distinct ;
+- la cible propriétaire/dépôt vient exclusivement du projet actif persisté ;
+- une demande explicite crée une Issue bornée, sans exposer le jeton au navigateur ;
+- un reçu durable relie ticket, projet, empreinte, acteur, numéro et URL distante ;
+- un double clic est refusé pendant l'effet et un retry retourne le même lien ;
+- après une interruption incertaine, le marqueur du ticket est recherché avant
+  toute nouvelle création ;
+- refus et réussite sont inscrits dans la chaîne d'audit du projet.
+
+### Preuves
+
+- tests unitaires : fournisseur désactivé, secret séparé et contenu Markdown borné ;
+- test E2E PostgreSQL : création unique, retry sans appel distant, réconciliation
+  d'un effet incertain et refus sans grant ;
+- interface : le détail d'un ticket sans source propose **Créer l’Issue GitHub** et
+  remplace l'action par le lien canonique après succès ;
+- migration : `ExternalTicketSync` impose l'unicité par ticket/fournisseur et par
+  identifiant distant dans un projet.
+
+### Résultat du 27 août 2026
+
+- `npm run lint` et `npm run build` : réussis ;
+- `npm test` : 31 tests de contrats et 31 tests API réussis ;
+- `npm run test:e2e` sur Neon PostgreSQL : 7 scénarios réussis ;
+- `npm audit --audit-level=high` : 0 vulnérabilité ;
+- `prisma migrate status` : 6 migrations, schéma à jour ;
+- fournisseur maintenu désactivé : aucun effet GitHub réel pendant la validation.

@@ -15,9 +15,11 @@ Knowledge Base uniquement après une revue humaine explicite.
    SHA-256 ;
 5. utiliser le simulateur local sans effet externe, ou l'adaptateur GitHub Actions
    explicitement activé pour proposer une branche et une pull request brouillon ;
-6. rattacher un feedback à un run et un artefact réels ;
-7. conserver ce feedback dans une mémoire de session temporaire et bornée ;
-8. proposer une connaissance projet ou commune, obtenir respectivement une ou deux
+6. publier explicitement un ticket vers GitHub Issues avec reçu durable,
+   déduplication et cible issue du projet ;
+7. rattacher un feedback à un run et un artefact réels ;
+8. conserver ce feedback dans une mémoire de session temporaire et bornée ;
+9. proposer une connaissance projet ou commune, obtenir respectivement une ou deux
    approbations distinctes, la promouvoir avec provenance/version/citation, puis la
    révoquer sans effacer son historique.
 
@@ -58,13 +60,17 @@ Le déploiement depuis GitHub est décrit dans
 
 `worker-simulator` est toujours local, déterministe et sans effet externe. Tous les
 fournisseurs externes sont refusés par défaut. `ENABLED_PROVIDERS` accepte une liste
-explicite parmi `github-actions`, `confluence` et `openai`; une entrée activée sans
-configuration serveur rend `/api/ready` négatif.
+explicite parmi `github-actions`, `github-issues`, `confluence` et `openai`; une
+entrée activée sans configuration serveur rend `/api/ready` négatif.
 
 L'adaptateur GitHub Actions reçoit un contexte borné et nettoyé, exécute lint/tests/
 build, pousse une branche `codex/*`, ouvre une PR brouillon et renvoie un reçu avec
 empreinte. Il ne merge et ne déploie jamais. Aucune connexion externe n'est activée
 par la configuration d'exemple.
+
+L'adaptateur `github-issues` utilise un `GITHUB_ISSUES_TOKEN` distinct et borné au
+dépôt pilote. Un clic humain crée l'Issue, ou retrouve celle déjà créée après une
+interruption, puis conserve le reçu et le lien dans PostgreSQL.
 
 ## Validation
 

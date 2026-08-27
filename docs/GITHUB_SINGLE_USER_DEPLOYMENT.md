@@ -93,6 +93,22 @@ Le premier essai se fait sur une branche `codex/*` d'un dépôt bac à sable. Le
 workflow doit seulement ouvrir une pull request brouillon ; fusion et déploiement
 restent humains.
 
+## 7. Activer GitHub Issues séparément
+
+Créer un jeton finement borné à un seul dépôt pilote, avec uniquement la lecture du
+dépôt et l'écriture des Issues, puis ajouter côté API :
+
+```text
+GITHUB_ISSUES_TOKEN=<jeton distinct borné au dépôt pilote>
+ENABLED_PROVIDERS=github-issues
+```
+
+Si GitHub Actions est également approuvé, utiliser
+`ENABLED_PROVIDERS=github-actions,github-issues`. Le propriétaire et le dépôt sont
+toujours lus depuis le `Project` PostgreSQL ; ils ne sont jamais fournis par le
+navigateur. Le premier essai doit utiliser un ticket de test dans un dépôt bac à
+sable et vérifier qu'un double clic ne produit qu'une Issue.
+
 ## Critères de validation
 
 1. `/api/health` répond `200` et `/api/ready` répond `ready`.
@@ -100,15 +116,19 @@ restent humains.
 3. `D0nothing` peut se connecter ; tout autre login reçoit `403`.
 4. Une mutation sans origine ou avec une autre origine reçoit `403`.
 5. Aucun secret n'apparaît dans le bundle, les réponses ou les logs.
-6. Les cinq migrations sont appliquées et les données survivent au redéploiement.
+6. Les six migrations sont appliquées et les données survivent au redéploiement.
 7. Le parcours demande → tickets → preuve → feedback → KB réussit en ligne.
 8. Après activation GitHub, un ticket produit une PR brouillon et son reçu SHA-256,
    sans merge automatique.
+9. Après activation de `github-issues`, un ticket produit une seule Issue et un
+   second appel retourne le même lien sans nouvel effet.
 
 ## Retour arrière
 
 - retirer `github-actions` de `ENABLED_PROVIDERS` coupe immédiatement tout nouvel
   effet externe ;
+- retirer `github-issues` de `ENABLED_PROVIDERS` coupe immédiatement toute nouvelle
+  Issue sans supprimer les liens déjà persistés ;
 - révoquer le secret OAuth invalide les nouvelles connexions ;
 - changer `AUTH_SESSION_SECRET` invalide toutes les sessions existantes ;
 - restaurer le dernier déploiement Vercel sain et la sauvegarde PostgreSQL testée.

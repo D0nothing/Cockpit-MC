@@ -10,6 +10,7 @@ import { serviceReadiness } from '../src/operations/readiness';
 import { metricsSnapshot, observeHttpRequest } from '../src/operations/telemetry';
 import { listProviderReadiness } from '../src/providers/providers';
 import { commandRun, createSession, getRun, getSession, listBacklog, listProjects, listRuns, listSessions, planSession, startRun } from '../src/runs/runs';
+import { publishTicketToGitHubIssue } from '../src/ticketing/github-issues';
 import { assignTicket, findTicket, getWorkerContext, launchWorkflow, listTickets, saveSpecification, setTicketRisk, transitionTicket, validateSpecification } from '../src/tickets/tickets';
 
 const prisma = new PrismaClient();
@@ -58,13 +59,13 @@ export default async function handler(request: IncomingMessage, response: Server
     if (method === 'GET' && path === '/api/projects') return sendJson(response, 200, await listProjects(prisma));
     if (method === 'GET' && path === '/api/providers') return sendJson(response, 200, await listProviderReadiness(prisma, requiredQuery(url, 'projectId')));
     if (method === 'GET' && path === '/api/feedback') return sendJson(response, 200, await listFeedback(prisma, requiredQuery(url, 'projectId'), url.searchParams.get('sessionId') ?? undefined));
-    if (method === 'POST' && path === '/api/feedback') return sendJson(response, 201, await createFeedback(prisma, await readJson(request)));
+    if (method === 'POST' && path === '/api/feedback') return sendJson(response, 201, await createFeedback(prisma, await readJsonWithAuthenticatedActor(request, authSession, 'authorId')));
     if (method === 'GET' && path === '/api/memory') return sendJson(response, 200, await listSessionMemory(prisma, requiredQuery(url, 'projectId'), requiredQuery(url, 'sessionId')));
-    if (method === 'DELETE' && path === '/api/memory') return sendJson(response, 200, await clearSessionMemory(prisma, await readJson(request)));
+    if (method === 'DELETE' && path === '/api/memory') return sendJson(response, 200, await clearSessionMemory(prisma, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
     if (method === 'GET' && path === '/api/knowledge') return sendJson(response, 200, await listKnowledge(prisma, requiredQuery(url, 'projectId'), url.searchParams.get('q') ?? '', numericQuery(url, 'limit', 20)));
     if (method === 'GET' && path === '/api/knowledge/candidates') return sendJson(response, 200, await listKnowledgeCandidates(prisma, requiredQuery(url, 'projectId')));
-    if (method === 'POST' && path === '/api/knowledge/candidates') return sendJson(response, 201, await proposeKnowledgeCandidate(prisma, await readJson(request)));
-    if (method === 'POST' && path === '/api/sessions') return sendJson(response, 201, await createSession(prisma, await readJson(request)));
+    if (method === 'POST' && path === '/api/knowledge/candidates') return sendJson(response, 201, await proposeKnowledgeCandidate(prisma, await readJsonWithAuthenticatedActor(request, authSession, 'proposedBy')));
+    if (method === 'POST' && path === '/api/sessions') return sendJson(response, 201, await createSession(prisma, await readJsonWithAuthenticatedActor(request, authSession, 'createdBy')));
     if (method === 'GET' && path === '/api/runs') return sendJson(response, 200, await listRuns(prisma, requiredQuery(url, 'projectId')));
 
     const projectSessionsMatch = path.match(/^\/api\/projects\/([^/]+)\/sessions$/);
@@ -82,8 +83,8 @@ export default async function handler(request: IncomingMessage, response: Server
       const id = decodeURIComponent(sessionMatch[1]);
       const action = sessionMatch[2];
       if (method === 'GET' && !action) return sendJson(response, 200, await getSession(prisma, id, requiredQuery(url, 'projectId')));
-      if (method === 'POST' && action === 'plan') return sendJson(response, 200, await planSession(prisma, id, await readJson(request)));
-      if (method === 'POST' && action === 'runs') return sendJson(response, 201, await startRun(prisma, id, await readJson(request)));
+      if (method === 'POST' && action === 'plan') return sendJson(response, 200, await planSession(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
+      if (method === 'POST' && action === 'runs') return sendJson(response, 201, await startRun(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
     }
 
     const runTaskDispatchMatch = path.match(/^\/api\/runs\/([^/]+)\/tasks\/([^/]+)\/dispatch$/);
@@ -92,7 +93,7 @@ export default async function handler(request: IncomingMessage, response: Server
         prisma,
         decodeURIComponent(runTaskDispatchMatch[1]),
         decodeURIComponent(runTaskDispatchMatch[2]),
-        await readJson(request),
+        await readJsonWithAuthenticatedActor(request, authSession, 'actorId'),
       ));
     }
 
@@ -101,40 +102,41 @@ export default async function handler(request: IncomingMessage, response: Server
       const id = decodeURIComponent(runMatch[1]);
       const action = runMatch[2];
       if (method === 'GET' && !action) return sendJson(response, 200, await getRun(prisma, id, requiredQuery(url, 'projectId')));
-      if (method === 'POST' && action === 'commands') return sendJson(response, 200, await commandRun(prisma, id, await readJson(request)));
+      if (method === 'POST' && action === 'commands') return sendJson(response, 200, await commandRun(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
     }
 
     const approvalMatch = path.match(/^\/api\/approvals\/([^/]+)\/decisions$/);
     if (method === 'POST' && approvalMatch) {
-      return sendJson(response, 200, await decideApproval(prisma, decodeURIComponent(approvalMatch[1]), await readJson(request)));
+      return sendJson(response, 200, await decideApproval(prisma, decodeURIComponent(approvalMatch[1]), await readJsonWithAuthenticatedActor(request, authSession, 'approverId')));
     }
 
     const knowledgeCandidateMatch = path.match(/^\/api\/knowledge\/candidates\/([^/]+)\/(decisions|promote)$/);
     if (method === 'POST' && knowledgeCandidateMatch) {
       const candidateId = decodeURIComponent(knowledgeCandidateMatch[1]);
       const action = knowledgeCandidateMatch[2];
-      if (action === 'decisions') return sendJson(response, 200, await decideKnowledgeCandidate(prisma, candidateId, await readJson(request)));
-      return sendJson(response, 200, await promoteKnowledgeCandidate(prisma, candidateId, await readJson(request)));
+      if (action === 'decisions') return sendJson(response, 200, await decideKnowledgeCandidate(prisma, candidateId, await readJsonWithAuthenticatedActor(request, authSession, 'approverId')));
+      return sendJson(response, 200, await promoteKnowledgeCandidate(prisma, candidateId, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
     }
 
     const knowledgeEntryMatch = path.match(/^\/api\/knowledge\/([^/]+)\/revoke$/);
     if (method === 'POST' && knowledgeEntryMatch) {
-      return sendJson(response, 200, await revokeKnowledgeEntry(prisma, decodeURIComponent(knowledgeEntryMatch[1]), await readJson(request)));
+      return sendJson(response, 200, await revokeKnowledgeEntry(prisma, decodeURIComponent(knowledgeEntryMatch[1]), await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
     }
 
     const ticketMatch = path.match(/^\/api\/tickets\/([^/]+)(?:\/([^/]+))?$/);
     if (ticketMatch) {
       const id = decodeURIComponent(ticketMatch[1]);
       const action = ticketMatch[2];
-      const actorId = headerValue(request.headers['x-actor-id']) ?? 'system';
+      const actorId = authenticatedActorId(request, authSession);
 
       if (method === 'GET' && !action) return sendJson(response, 200, await findTicket(prisma, id));
       if (method === 'PATCH' && action === 'assign') return sendJson(response, 200, await assignTicket(prisma, id, await readJson(request)));
       if (method === 'PATCH' && action === 'risk') return sendJson(response, 200, await setTicketRisk(prisma, id, await readJson(request), actorId));
       if (method === 'PATCH' && action === 'status') return sendJson(response, 200, await transitionTicket(prisma, id, await readJson(request), actorId));
       if (method === 'PUT' && action === 'specification') return sendJson(response, 200, await saveSpecification(prisma, id, await readJson(request), actorId));
-      if (method === 'POST' && action === 'validations') return sendJson(response, 200, await validateSpecification(prisma, id, await readJson(request)));
-      if (method === 'POST' && action === 'workflows') return sendJson(response, 200, await launchWorkflow(prisma, id, await readJson(request)));
+      if (method === 'POST' && action === 'validations') return sendJson(response, 200, await validateSpecification(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'validatorId')));
+      if (method === 'POST' && action === 'workflows') return sendJson(response, 200, await launchWorkflow(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
+      if (method === 'POST' && action === 'github-issue') return sendJson(response, 200, await publishTicketToGitHubIssue(prisma, id, actorId));
     }
 
     const workerMatch = path.match(/^\/api\/worker\/tickets\/([^/]+)\/context$/);
@@ -175,4 +177,23 @@ function numericQuery(url: URL, key: string, fallback: number): number {
   const number = Number(value);
   if (!Number.isInteger(number)) throw new HttpError(400, `${key} query parameter is invalid`);
   return number;
+}
+
+async function readJsonWithAuthenticatedActor(
+  request: IncomingMessage,
+  authSession: { login: string } | null,
+  ...actorFields: string[]
+): Promise<Record<string, unknown>> {
+  const body = await readJson<Record<string, unknown>>(request);
+  if (process.env.NODE_ENV !== 'production') return body;
+  if (!authSession?.login) throw new HttpError(403, 'A human session is required for this operation');
+  return Object.assign({}, body, Object.fromEntries(actorFields.map((field) => [field, authSession.login])));
+}
+
+function authenticatedActorId(request: IncomingMessage, authSession: { login: string } | null): string {
+  if (process.env.NODE_ENV === 'production') {
+    if (!authSession?.login) throw new HttpError(403, 'A human session is required for this operation');
+    return authSession.login;
+  }
+  return headerValue(request.headers['x-actor-id']) ?? 'system';
 }
