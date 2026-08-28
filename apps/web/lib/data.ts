@@ -14,6 +14,13 @@ export type SessionLaunchResult =
   | { kind: 'approval'; sessionId: string }
   | { kind: 'run'; runId: string };
 
+export interface ReadySessionSummary {
+  id: string;
+  projectId: string;
+  objective: string;
+  state: 'ready';
+}
+
 export const demoTickets: TicketSummary[] = [
   {
     id: 'demo-142',
@@ -149,6 +156,20 @@ export async function getRuns(projectId: string): Promise<RunSummary[]> {
   return value.map(runSummary);
 }
 
+export async function getReadySessions(projectId: string): Promise<ReadySessionSummary[]> {
+  const value = await apiRequest(`/sessions?projectId=${encodeURIComponent(projectId)}`);
+  if (!Array.isArray(value)) throw new Error('Session list is invalid');
+  return value.map(sessionSummary).filter((session): session is ReadySessionSummary => session.state === 'ready');
+}
+
+export async function startSessionRun(projectId: string, sessionId: string): Promise<RunSummary> {
+  const value = await apiRequest(`/sessions/${encodeURIComponent(sessionId)}/runs`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, actorId: 'user-alice', idempotencyKey: `run-${sessionId}` }),
+  });
+  return runSummary(value);
+}
+
 export async function launchSession(projectId: string, objective: string, riskLevel: SessionRiskLevel): Promise<SessionLaunchResult> {
   const requestId = crypto.randomUUID();
   const session = object(await apiRequest('/sessions', {
@@ -218,6 +239,18 @@ function runSummary(value: unknown): RunSummary {
     session: { objective: string(session.objective, 'Run.session.objective') },
     tasks,
   };
+}
+
+function sessionSummary(value: unknown): ReadySessionSummary | { id: string; projectId: string; objective: string; state: string } {
+  const input = object(value, 'Session');
+  const state = string(input.state, 'Session.state');
+  const summary = {
+    id: string(input.id, 'Session.id'),
+    projectId: string(input.projectId, 'Session.projectId'),
+    objective: string(input.objective, 'Session.objective'),
+    state,
+  };
+  return state === 'ready' ? { ...summary, state } : summary;
 }
 
 export function object(value: unknown, path: string): Record<string, unknown> {
