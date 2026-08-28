@@ -157,7 +157,7 @@ export async function getRuns(projectId: string): Promise<RunSummary[]> {
 }
 
 export async function getReadySessions(projectId: string): Promise<ReadySessionSummary[]> {
-  const value = await apiRequest(`/sessions?projectId=${encodeURIComponent(projectId)}`);
+  const value = await apiRequest(`/projects/${encodeURIComponent(projectId)}/sessions`);
   if (!Array.isArray(value)) throw new Error('Session list is invalid');
   return value.map(sessionSummary).filter((session): session is ReadySessionSummary => session.state === 'ready');
 }
