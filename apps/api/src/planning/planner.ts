@@ -146,14 +146,14 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
       "small",
       [],
       [
-        "Le parcours principal permet le téléchargement STL ou 3MF et un transfert optionnel vers Drag2Print sans commande ni paiement automatique",
+        "Le parcours principal permet le téléchargement STL ou 3MF et un transfert optionnel vers un service d’impression sans commande ni paiement automatique",
         "Les décisions de prix, quota, conservation et authentification sont explicites",
-        "L’intégration Drag2Print prépare le fichier côté serveur mais ne déclenche aucune impression réelle sans confirmation explicite dans le parcours Drag2Print",
+        "L’interface affiche uniquement Imprimer mon objet sur un modèle READY et ne révèle jamais le courtier ou le prestataire",
         "Le socle est borné à React/TypeScript, une API et un worker Node.js/TypeScript, MariaDB utf8mb4, Redis et un stockage objet S3-compatible",
         "La distribution Docker et Kubernetes k3s sur Ubuntu, le load balancing et le point unique de panne mono-nœud sont explicités",
         "Les locales MVP sont fr, en, es, de, it, pt, zh-Hans, ar, hi et he avec fallback anglais et prise en charge RTL arabe et hébraïque",
         "Toute génération réussie apparaît automatiquement dans la bibliothèque du compte après ingestion privée, sans réimport manuel",
-        "Aucune interface React n’est implémentée avant le choix humain d’une des trois directions visuelles issues du site de référence autorisé",
+        "La direction 2 révisée a été choisie humainement et son image versionnée devient la source de vérité React",
       ],
       [
         "Périmètre et non-objectifs relus",
@@ -177,8 +177,8 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
         "Redis/BullMQ, stockage S3-compatible, images Docker non-root et ressources Kubernetes k3s sont décrits",
         "Ingress TLS, Services ClusterIP, NetworkPolicies, probes et limites de ressources couvrent le load balancing sans promettre de haute disponibilité mono-nœud",
         "Les secrets et données privées ne traversent aucune frontière cliente",
-        "Le modèle de données relie chaque création, asset, ingestion, analyse, export et transfert Drag2Print au propriétaire authentifié",
-        "L’adaptateur Drag2Print est isolé et versionné ; aucune URL ou schéma fournisseur n’est inventé sans documentation vérifiée",
+        "Le modèle de données relie chaque création, asset, ingestion, analyse, export et transfert d’impression au propriétaire authentifié",
+        "L’adaptateur interne printBroker est isolé et versionné ; aucune marque, URL ou schéma fournisseur n’est exposé ou inventé sans documentation vérifiée",
       ],
       [
         "Décision d’architecture versionnée",
@@ -199,7 +199,7 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
       [
         "Les services web, api et generation-worker démarrent avec configuration validée et contrats versionnés",
         "MariaDB utilise utf8mb4 et des identifiants séparés par service lorsque pertinent",
-        "Les entités utilisateur, abonnement, génération, modèle, asset, ingestion, analyse, export, transfert Drag2Print et webhook sont persistées",
+        "Les entités utilisateur, abonnement, génération, modèle, asset, ingestion, analyse, export, transfert d’impression et webhook sont persistées",
         "Clés fournisseur, checksums et contraintes uniques empêchent doublons de modèle, d’asset, de quota et de transfert",
       ],
       [
@@ -374,9 +374,10 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
         "Le sélecteur accessible couvre fr, en, es, de, it, pt, zh-Hans, ar, hi et he avec détection navigateur, préférence persistée et fallback anglais",
         "L’arabe et l’hébreu appliquent dir=rtl, des propriétés CSS logiques, un ordre de composants et des icônes directionnelles vérifiés",
         "L’interface prolonge l’identité autorisée de printmymind.ai avec le champ d’idée et une seule action forte",
+        "Le rendu suit la direction 2 révisée sans nom de courtier visible et réserve Imprimer mon objet à l’état READY",
       ],
       [
-        "Une des trois directions visuelles 1440 × 1024 a été choisie explicitement par un humain avant toute implémentation React",
+        "La direction 2 révisée 1440 × 1024 est la source visuelle de vérité validée avant l’implémentation React",
         "Parcours clavier et responsive testés",
         "Dates, nombres, prix et pluriels utilisent Intl sans texte métier codé en dur",
         "Chaque locale, le RTL arabe et hébreu, la navigation clavier, les nombres et ponctuations mixtes, les débordements et le changement de langue sans perte d’état sont testés",
@@ -510,7 +511,7 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
     ticket(
       "secure-download",
       "printability-export",
-      "Sécuriser le téléchargement et le transfert Drag2Print",
+      "Sécuriser le téléchargement et le transfert d’impression",
       input.objective,
       "implementation",
       "security",
@@ -519,15 +520,15 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
       [
         "Une URL signée courte est créée uniquement pour le propriétaire",
         "Modifier un identifiant ou réutiliser une URL expirée est refusé",
-        "Un modèle READY propose Télécharger et l’action secondaire Imprimer avec Drag2Print",
-        "Le transfert serveur-à-serveur utilise un adaptateur Node.js versionné et le secret attendu DRAG2PRINT_API_KEY, jamais React ni une URL cliente",
+        "Un modèle READY propose Télécharger et l’action secondaire neutre Imprimer mon objet, sans marque prestataire visible",
+        "Le transfert serveur-à-serveur utilise l’adaptateur Node.js versionné printBroker et le secret attendu PRINT_BROKER_API_KEY, jamais React ni une URL cliente",
         "Fichier, format, checksum, dimensions, unité, rapport d’imprimabilité et référence utilisateur autorisée sont transmis avec une clé d’idempotence",
         "Les états NOT_SENT, UPLOADING, TRANSFERRED, FAILED et CANCELED sont persistés avec timeout, retry borné, circuit breaker et reprise",
         "Aucune commande payante, impression ou facturation ne part automatiquement ; aucun appel live n’a lieu sans nouvelle clé sûre, documentation et URL vérifiées",
       ],
       [
         "Tests IDOR, expiration, contrat mocké, idempotence et échec réseau réussissent",
-        "Webhook signé ou polling est choisi seulement selon le contrat Drag2Print réel",
+        "Webhook signé ou polling est choisi seulement selon le contrat fournisseur réel",
         "Aucun chemin de stockage permanent n’est public",
       ],
       ["download-change", "download-security-report"],
@@ -573,7 +574,7 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
         "Webhooks, secrets et egress appliquent refus par défaut et moindre privilège",
         "Secrets Kubernetes, ConfigMaps, NetworkPolicies et stockage externe aux pods appliquent la séparation des privilèges",
         "Les images Docker sont scannées, non-root et référencées par tags immuables avant tout déploiement contrôlé",
-        "La clé Drag2Print n’existe que dans le gestionnaire de secrets et les logs ne contiennent que des identifiants non sensibles",
+        "La clé du courtier d’impression n’existe que dans le gestionnaire de secrets et les logs ne contiennent que des identifiants non sensibles",
         "La conservation et la suppression RGPD sont documentées",
       ],
       [
@@ -603,7 +604,8 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
       [
         "Le parcours inscription vers bibliothèque automatique puis téléchargement STL et 3MF réussit",
         "Ownership, retry sans doublon, reprise d’ingestion, accès croisé refusé et conservation après expiration Meshy sont prouvés",
-        "Le transfert Drag2Print est testé uniquement contre un mock et reste sans effet d’impression ou de facturation",
+        "Le transfert d’impression est testé uniquement contre un mock et reste sans effet d’impression ou de facturation",
+        "Avant tout paiement ou impression, prix, modèle, dimensions, matériau, adresse et conditions applicables exigent une confirmation explicite",
         "Les pannes Stripe, Meshy, worker et stockage ne créent ni fuite ni double débit",
         "Les budgets performance, responsive et accessibilité sont mesurés",
         "Les dix locales et les rendus RTL arabe et hébreu passent leurs scénarios visuels et fonctionnels sans perte d’état",
@@ -629,7 +631,8 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
       [
         "Les changements, preuves, coûts et risques résiduels sont présentés",
         "Les décisions produit ouvertes sont visibles avant lancement",
-        "Aucun merge, déploiement, transfert Drag2Print ou commande d’impression n’est automatique",
+        "Aucun merge, déploiement, transfert d’impression ou commande d’impression n’est automatique",
+        "CGU, CGA/CGV et politique de confidentialité expliquent rôle de courtier, prestataires, transferts de fichiers et données, responsabilités et conditions financières",
       ],
       [
         "Pull request maintenue en brouillon",
@@ -697,11 +700,11 @@ function buildPrintMyMindPlan(input: PlannerInput): RequestPlan {
         "printability-export",
         "Imprimabilité, réparation et export STL/3MF",
         "Transformer un modèle généré en fichier dimensionné, téléchargeable et transférable de façon optionnelle avec un risque explicite.",
-        "Un résultat analysé ou réparé peut être exporté en STL ou 3MF via un lien privé ou préparé pour Drag2Print.",
+        "Un résultat analysé ou réparé peut être exporté en STL ou 3MF via un lien privé ou préparé pour un service d’impression.",
         [
           "Les quatre résultats d’analyse entraînent les bonnes actions",
           "La source, la taille et le format de chaque export sont traçables",
-          "Le transfert Drag2Print est idempotent et n’engage aucune commande automatique",
+          "Le transfert d’impression est idempotent, sans marque exposée et n’engage aucune commande automatique",
         ],
       ),
       epic(
