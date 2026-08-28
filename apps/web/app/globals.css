@@ -663,6 +663,11 @@ tbody tr:hover {
   font-size: 10px;
   color: #7a867f;
 }
+.detail-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
 .secondary {
   display: flex;
   align-items: center;
@@ -1470,6 +1475,13 @@ tbody tr:hover {
   .detail-header .secondary {
     margin-top: 15px;
     width: max-content;
+  }
+  .detail-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .detail-actions .secondary + .secondary {
+    margin-top: 0;
   }
   .steps {
     overflow: auto;

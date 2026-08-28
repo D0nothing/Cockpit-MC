@@ -9,7 +9,7 @@ import { clearSessionMemory, createFeedback, decideKnowledgeCandidate, listFeedb
 import { serviceReadiness } from '../src/operations/readiness';
 import { metricsSnapshot, observeHttpRequest } from '../src/operations/telemetry';
 import { listProviderReadiness } from '../src/providers/providers';
-import { commandRun, createSession, getRun, getSession, listBacklog, listProjects, listRuns, listSessions, planSession, startRun } from '../src/runs/runs';
+import { commandRun, createSession, getRun, getSession, listBacklog, listProjects, listRuns, listSessions, planSession, reviseSession, startRun } from '../src/runs/runs';
 import { publishTicketToGitHubIssue } from '../src/ticketing/github-issues';
 import { assignTicket, findTicket, getWorkerContext, launchWorkflow, listTickets, saveSpecification, setTicketRisk, transitionTicket, validateSpecification } from '../src/tickets/tickets';
 
@@ -84,6 +84,7 @@ export default async function handler(request: IncomingMessage, response: Server
       const action = sessionMatch[2];
       if (method === 'GET' && !action) return sendJson(response, 200, await getSession(prisma, id, requiredQuery(url, 'projectId')));
       if (method === 'POST' && action === 'plan') return sendJson(response, 200, await planSession(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
+      if (method === 'POST' && action === 'revisions') return sendJson(response, 200, await reviseSession(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
       if (method === 'POST' && action === 'runs') return sendJson(response, 201, await startRun(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
     }
 

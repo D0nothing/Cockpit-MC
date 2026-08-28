@@ -157,6 +157,99 @@ export async function planSession(prisma: PrismaClient, sessionId: string, body:
   return getSession(prisma, sessionId, projectId);
 }
 
+export async function reviseSession(prisma: PrismaClient, sessionId: string, body: unknown) {
+  requireDatabase();
+  const input = bodyRecord(body);
+  const projectId = bodyString(input, 'projectId', 128);
+  const actorId = bodyString(input, 'actorId', 128);
+  const objective = bodyString(input, 'objective', 10_000);
+  const session = await prisma.workSession.findFirst({
+    where: { id: sessionId, projectId },
+    include: {
+      macroTasks: { orderBy: { version: 'desc' }, take: 1, include: { graph: true } },
+      epics: { select: { id: true, key: true } },
+      plannedTickets: { select: { id: true, plannerKey: true } },
+      runs: { select: { id: true }, take: 1 },
+    },
+  });
+  if (!session) throw new HttpError(404, 'Session not found');
+  if (session.objective === objective) return getSession(prisma, sessionId, projectId);
+  if (session.runs.length > 0) throw new HttpError(409, 'A session with a run cannot be revised');
+  if (!['planning', 'awaiting_approval', 'ready'].includes(session.state)) throw new HttpError(409, `Session cannot be revised from ${session.state}`);
+  const currentMacroTask = session.macroTasks[0];
+  if (!currentMacroTask?.graph) throw new HttpError(409, 'A planned session is required');
+
+  const nextVersion = currentMacroTask.version + 1;
+  const plan = buildDeterministicPlan({ projectId, sessionId, objective, riskLevel: session.riskLevel, version: nextVersion });
+  const epics = new Map(session.epics.map((epic) => [epic.key, epic.id]));
+  const tickets = new Map(session.plannedTickets.flatMap((ticket) => ticket.plannerKey ? [[ticket.plannerKey, ticket.id] as const] : []));
+  const plannedEpicKeys = plan.requestPlan.epics.map(({ epicKey }) => epicKey).sort();
+  const plannedTicketKeys = plan.requestPlan.tickets.map(({ ticketKey }) => ticketKey).sort();
+  if (JSON.stringify([...epics.keys()].sort()) !== JSON.stringify(plannedEpicKeys) || JSON.stringify([...tickets.keys()].sort()) !== JSON.stringify(plannedTicketKeys)) {
+    throw new HttpError(409, 'A revision cannot change persisted plan topology');
+  }
+  const requiresApproval = plan.macroTask.requiredApprovals > 0;
+
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.workSession.updateMany({
+      where: { id: sessionId, projectId, version: session.version },
+      data: { objective, state: requiresApproval ? 'awaiting_approval' : 'ready', version: { increment: 1 } },
+    });
+    if (updated.count !== 1) throw new HttpError(409, 'Session was revised concurrently');
+    await tx.approvalRequest.updateMany({ where: { sessionId, status: 'pending' }, data: { status: 'changes_requested' } });
+    await tx.macroTask.create({
+      data: {
+        id: plan.macroTask.macroTaskId,
+        projectId,
+        sessionId,
+        version: plan.macroTask.version,
+        objective: plan.macroTask.objective,
+        expectedOutcome: plan.macroTask.expectedOutcome,
+        constraints: plan.macroTask.constraints,
+        nonGoals: plan.macroTask.nonGoals,
+        deliverables: plan.macroTask.deliverables,
+        acceptanceCriteria: plan.macroTask.acceptanceCriteria,
+        riskLevel: plan.macroTask.riskLevel,
+        requiredApprovals: plan.macroTask.requiredApprovals,
+        requiredCapabilities: plan.macroTask.requiredCapabilities,
+        budgets: plan.macroTask.budgets as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await tx.taskGraph.create({
+      data: {
+        id: plan.graph.graphId,
+        projectId,
+        sessionId,
+        macroTaskId: plan.macroTask.macroTaskId,
+        version: plan.graph.macroTaskVersion,
+        nodes: plan.graph.nodes as unknown as Prisma.InputJsonValue,
+      },
+    });
+    for (const [sequence, epic] of plan.requestPlan.epics.entries()) {
+      await tx.epic.update({ where: { id: epics.get(epic.epicKey) }, data: { title: epic.title, objective: epic.objective, expectedOutcome: epic.expectedOutcome, acceptanceCriteria: epic.acceptanceCriteria, sequence: sequence + 1, status: 'planned' } });
+    }
+    for (const ticket of plan.requestPlan.tickets) {
+      const ticketId = tickets.get(ticket.ticketKey);
+      if (!ticketId) throw new HttpError(409, `Persisted ticket ${ticket.ticketKey} is missing`);
+      await tx.ticket.update({
+        where: { id: ticketId },
+        data: { title: ticket.title, description: ticket.description, labels: ['vistory-plan', ticket.capability, ticket.kind], status: 'context_ready', kind: ticket.kind, capability: ticket.capability, complexity: ticket.complexity, dependsOn: ticket.dependsOn, acceptanceCriteria: ticket.acceptanceCriteria, definitionOfDone: ticket.definitionOfDone },
+      });
+      await tx.specification.update({
+        where: { ticketId },
+        data: { content: plannedSpecification(ticket.title, ticket.description, ticket.acceptanceCriteria, ticket.definitionOfDone), generatedFromHash: plan.requestPlan.objectiveHash, status: 'DRAFT', version: { increment: 1 } },
+      });
+    }
+    if (requiresApproval) {
+      await tx.approvalRequest.create({
+        data: { projectId, sessionId, macroTaskId: plan.macroTask.macroTaskId, targetVersion: plan.macroTask.version, riskLevel: plan.macroTask.riskLevel, requiredApprovals: plan.macroTask.requiredApprovals, requesterId: actorId, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000) },
+      });
+    }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  await recordAudit(prisma, { projectId, actorId, action: 'session.revised', targetType: 'session', targetId: sessionId, metadata: { fromVersion: currentMacroTask.version, toVersion: nextVersion, objectiveHash: plan.requestPlan.objectiveHash, epics: plan.requestPlan.epics.length, tickets: plan.requestPlan.tickets.length, requiredApprovals: plan.macroTask.requiredApprovals } });
+  return getSession(prisma, sessionId, projectId);
+}
+
 export function listBacklog(prisma: PrismaClient, projectId: string) {
   requireDatabase();
   return prisma.epic.findMany({
@@ -293,8 +386,9 @@ export async function commandRun(prisma: PrismaClient, runId: string, body: unkn
   return command;
 }
 
-export function buildDeterministicPlan(input: { projectId: string; sessionId: string; objective: string; riskLevel?: 'standard' | 'sensitive' | 'critical' }): { macroTask: MacroTaskContract; graph: TaskGraphContract; requestPlan: RequestPlan } {
-  const macroTaskId = `macro-${input.sessionId}-v1`;
+export function buildDeterministicPlan(input: { projectId: string; sessionId: string; objective: string; riskLevel?: 'standard' | 'sensitive' | 'critical'; version?: number }): { macroTask: MacroTaskContract; graph: TaskGraphContract; requestPlan: RequestPlan } {
+  const version = input.version ?? 1;
+  const macroTaskId = `macro-${input.sessionId}-v${version}`;
   const riskLevel = input.riskLevel ?? 'standard';
   const requestPlan = buildRequestPlan({ ...input, riskLevel });
   const nodes = requestPlanToTaskNodes(requestPlan);
@@ -302,7 +396,7 @@ export function buildDeterministicPlan(input: { projectId: string; sessionId: st
     schemaVersion: contractSchemaVersion,
     projectId: input.projectId,
     macroTaskId,
-    version: 1,
+    version,
     sessionId: input.sessionId,
     objective: input.objective,
     expectedOutcome: 'Un résultat vérifiable, prêt pour une revue humaine.',
@@ -318,10 +412,10 @@ export function buildDeterministicPlan(input: { projectId: string; sessionId: st
   const graph = parseTaskGraph({
     schemaVersion: contractSchemaVersion,
     projectId: input.projectId,
-    graphId: `graph-${input.sessionId}-v1`,
+    graphId: `graph-${input.sessionId}-v${version}`,
     sessionId: input.sessionId,
     macroTaskId,
-    macroTaskVersion: 1,
+    macroTaskVersion: version,
     nodes,
   });
   return { macroTask, graph, requestPlan };

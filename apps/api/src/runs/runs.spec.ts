@@ -20,6 +20,15 @@ describe('deterministic coordinator', () => {
       riskLevel: 'critical',
     }).macroTask.requiredApprovals).toBe(2);
   });
+
+  it('versions a revised macro task and graph without changing the task topology', () => {
+    const first = buildDeterministicPlan({ projectId: 'project-alpha', sessionId: 'session-1', objective: 'Construire une application web avec API et données.' });
+    const revised = buildDeterministicPlan({ projectId: 'project-alpha', sessionId: 'session-1', objective: 'Construire une application web avec API et données sur Ubuntu.', version: 2 });
+
+    expect(revised.macroTask).toMatchObject({ macroTaskId: 'macro-session-1-v2', version: 2 });
+    expect(revised.graph).toMatchObject({ graphId: 'graph-session-1-v2', macroTaskVersion: 2 });
+    expect(revised.graph.nodes.map(({ taskId }) => taskId)).toEqual(first.graph.nodes.map(({ taskId }) => taskId));
+  });
 });
 
 describe('bounded scheduler', () => {

@@ -26,9 +26,9 @@ export default function TicketDetailPage({ id, onNavigate }: { id: string; onNav
     try {
       const result = await publishTicketToGitHub(ticket.id);
       setTicket((current) => ({ ...current, sourceUrl: result.remoteUrl }));
-      setNotice({ kind: 'success', text: result.outcome === 'created' ? 'Issue GitHub créée et reliée au ticket.' : 'Issue GitHub existante retrouvée et reliée au ticket.' });
+      setNotice({ kind: 'success', text: result.outcome === 'created' ? 'Issue GitHub créée et reliée au ticket.' : result.outcome === 'updated' ? 'Issue GitHub actualisée depuis le plan Vistory.' : 'Issue GitHub existante retrouvée et reliée au ticket.' });
     } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'La création de l’Issue GitHub a échoué.' });
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'La synchronisation de l’Issue GitHub a échoué.' });
     } finally {
       setPublishingIssue(false);
     }
@@ -45,7 +45,10 @@ export default function TicketDetailPage({ id, onNavigate }: { id: string; onNav
           <p>{ticket.description}</p>
         </div>
         {ticket.sourceUrl ? (
-          <a className="secondary" href={ticket.sourceUrl} target="_blank" rel="noreferrer"><Github size={17} />Voir sur GitHub<ExternalLink size={14} /></a>
+          <div className="detail-actions">
+            <a className="secondary" href={ticket.sourceUrl} target="_blank" rel="noreferrer"><Github size={17} />Voir sur GitHub<ExternalLink size={14} /></a>
+            <button className="secondary" type="button" disabled={publishingIssue} onClick={() => void publishIssue()}><Github size={17} />{publishingIssue ? 'Actualisation…' : 'Actualiser l’Issue GitHub'}</button>
+          </div>
         ) : (
           <button className="secondary" type="button" disabled={publishingIssue} onClick={() => void publishIssue()}><Github size={17} />{publishingIssue ? 'Création…' : 'Créer l’Issue GitHub'}</button>
         )}

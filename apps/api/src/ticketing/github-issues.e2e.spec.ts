@@ -78,6 +78,24 @@ databaseDescribe('GitHub Issue synchronization E2E', () => {
     expect(methods).toEqual(['GET']);
   });
 
+  it('updates the linked Issue when the Vistory ticket changes', async () => {
+    const ticket = await prisma.ticket.create({ data: ticketData(projectId, 4) });
+    await publishTicketToGitHubIssue(prisma, ticket.id, 'D0nothing', environment, async (_input, init) => {
+      expect(init?.method).toBe('POST');
+      return new Response(JSON.stringify({ number: 777 }), { status: 201 });
+    });
+    await prisma.ticket.update({ where: { id: ticket.id }, data: { title: 'Ticket GitHub révisé', acceptanceCriteria: ['Le contenu distant est actualisé.'] } });
+
+    const receipt = await publishTicketToGitHubIssue(prisma, ticket.id, 'D0nothing', environment, async (input, init) => {
+      expect(String(input)).toContain('/issues/777');
+      expect(init?.method).toBe('PATCH');
+      expect(String(init?.body)).toContain('Ticket GitHub révisé');
+      return new Response(JSON.stringify({ number: 777 }), { status: 200 });
+    });
+
+    expect(receipt).toMatchObject({ outcome: 'updated', remoteId: '777' });
+  });
+
   it('refuses the external effect when the provider is not enabled', async () => {
     const ticket = await prisma.ticket.create({ data: ticketData(projectId, 3) });
     await expect(publishTicketToGitHubIssue(prisma, ticket.id, 'D0nothing', { GITHUB_ISSUES_TOKEN: environment.GITHUB_ISSUES_TOKEN }, async () => {

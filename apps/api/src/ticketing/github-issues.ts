@@ -42,7 +42,7 @@ export interface GitHubIssueReceipt {
   state: 'succeeded';
   remoteId: string;
   remoteUrl: string;
-  outcome: 'created' | 'reconciled' | 'already-linked';
+  outcome: 'created' | 'reconciled' | 'updated' | 'already-linked';
 }
 
 export interface GitHubIssueDraftInput {
@@ -83,8 +83,27 @@ export async function publishTicketToGitHubIssue(
   if (ticket.project.status !== 'active') throw new HttpError(409, 'Ticket project is not active');
 
   const alreadyLinked = issueFromUrl(ticket.sourceUrl, ticket.project.githubOwner, ticket.project.githubRepository);
-  if (alreadyLinked) return receipt(ticket.id, alreadyLinked, 'already-linked');
-  if (ticket.sourceUrl) throw new HttpError(409, 'Ticket already has another external source');
+  if (ticket.sourceUrl && !alreadyLinked) throw new HttpError(409, 'Ticket already has another external source');
+  const draft = buildGitHubIssueDraft(ticket);
+  if (alreadyLinked) {
+    const sync = await prisma.externalTicketSync.findUnique({ where: { ticketId_provider: { ticketId: ticket.id, provider } } });
+    if (!sync || sync.payloadHash === draft.payloadHash) return receipt(ticket.id, alreadyLinked, 'already-linked');
+    try {
+      assertProviderReady(provider, ticket.project, environment);
+      const token = environment.GITHUB_ISSUES_TOKEN;
+      if (!bounded(token, 2_000, 20)) throw new HttpError(503, 'GitHub Issues connector is not configured');
+      const remote = await updateRemoteIssue(ticket, alreadyLinked.number, draft, token, fetcher);
+      await prisma.externalTicketSync.update({ where: { id: sync.id }, data: { state: 'succeeded', payloadHash: draft.payloadHash, remoteId: String(remote.number), remoteUrl: remote.url, failureCode: null, attempt: { increment: 1 }, requestedBy: actor } });
+      await recordAudit(prisma, { projectId: ticket.projectId, actorId: actor, action: 'ticket.github_issue_updated', targetType: 'ticket', targetId: ticket.id, metadata: { provider, remoteId: String(remote.number), remoteUrl: remote.url, outcome: 'updated', payloadHash: draft.payloadHash } });
+      return receipt(ticket.id, remote, 'updated');
+    } catch (error) {
+      const code = failureCode(error);
+      await prisma.externalTicketSync.update({ where: { id: sync.id }, data: { state: 'failed', failureCode: code, attempt: { increment: 1 }, requestedBy: actor } }).catch(() => undefined);
+      await auditFailure(prisma, ticket, actor, code, 'failed');
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(503, 'GitHub Issues connector failed');
+    }
+  }
 
   try {
     assertProviderReady(provider, ticket.project, environment);
@@ -95,7 +114,6 @@ export async function publishTicketToGitHubIssue(
 
   const token = environment.GITHUB_ISSUES_TOKEN;
   if (!bounded(token, 2_000, 20)) throw new HttpError(503, 'GitHub Issues connector is not configured');
-  const draft = buildGitHubIssueDraft(ticket);
   const claim = await claimSync(prisma, ticket, draft.payloadHash, actor);
   if (claim.receipt) return claim.receipt;
 
@@ -207,12 +225,19 @@ async function createRemoteIssue(ticket: GitHubIssueTicket, draft: GitHubIssueDr
   return { number, url: issueUrl(ticket.project.githubOwner, ticket.project.githubRepository, number) };
 }
 
+async function updateRemoteIssue(ticket: GitHubIssueTicket, number: number, draft: GitHubIssueDraft, token: string, fetcher: Fetcher): Promise<RemoteIssue> {
+  const response = await githubRequest(ticket, token, fetcher, `/issues/${number}`, { method: 'PATCH', body: JSON.stringify({ title: draft.title, body: draft.body }) });
+  const value = await boundedJson(response, 1_000_000);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(503, 'GitHub Issues response is invalid');
+  return { number: positiveInteger((value as Record<string, unknown>).number, 'issue number'), url: issueUrl(ticket.project.githubOwner, ticket.project.githubRepository, number) };
+}
+
 async function githubRequest(
   ticket: GitHubIssueTicket,
   token: string,
   fetcher: Fetcher,
   suffix: string,
-  init: { method?: 'POST'; body?: string } = {},
+  init: { method?: 'POST' | 'PATCH'; body?: string } = {},
 ): Promise<Response> {
   const owner = githubSegment(ticket.project.githubOwner, 'owner');
   const repository = githubSegment(ticket.project.githubRepository, 'repository');
