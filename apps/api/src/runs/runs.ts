@@ -122,41 +122,22 @@ export async function planSession(prisma: PrismaClient, sessionId: string, body:
         nodes: plan.graph.nodes as unknown as Prisma.InputJsonValue,
       },
     });
-    const epicIds = new Map<string, string>();
-    for (const [sequence, epic] of plan.requestPlan.epics.entries()) {
-      const epicId = `epic-${sessionId}-${epic.epicKey}`;
-      epicIds.set(epic.epicKey, epicId);
-      await tx.epic.create({ data: { id: epicId, projectId, sessionId, key: epic.epicKey, title: epic.title, objective: epic.objective, expectedOutcome: epic.expectedOutcome, acceptanceCriteria: epic.acceptanceCriteria, sequence: sequence + 1 } });
-    }
-    for (const [index, ticket] of plan.requestPlan.tickets.entries()) {
-      await tx.ticket.create({
-        data: {
-          externalId: firstTicketNumber + index,
-          title: ticket.title,
-          description: ticket.description,
-          labels: ['vistory-plan', ticket.capability, ticket.kind],
-          status: 'context_ready',
-          riskLevel: plan.macroTask.riskLevel,
-          projectId,
-          epicId: epicIds.get(ticket.epicKey),
-          sourceSessionId: sessionId,
-          plannerKey: ticket.ticketKey,
-          kind: ticket.kind,
-          capability: ticket.capability,
-          complexity: ticket.complexity,
-          dependsOn: ticket.dependsOn,
-          acceptanceCriteria: ticket.acceptanceCriteria,
-          definitionOfDone: ticket.definitionOfDone,
-          specification: {
-            create: {
-              content: plannedSpecification(ticket.title, ticket.description, ticket.acceptanceCriteria, ticket.definitionOfDone),
-              generatedFromHash: plan.requestPlan.objectiveHash,
-              status: 'DRAFT',
-            },
-          },
-        },
-      });
-    }
+    const epicIds = new Map(plan.requestPlan.epics.map((epic) => [epic.epicKey, `epic-${sessionId}-${epic.epicKey}`]));
+    const resolveEpicId = (epicKey: string) => {
+      const epicId = epicIds.get(epicKey);
+      if (!epicId) throw new HttpError(500, `Planned epic ${epicKey} is missing`);
+      return epicId;
+    };
+    await tx.epic.createMany({
+      data: plan.requestPlan.epics.map((epic, sequence) => ({ id: resolveEpicId(epic.epicKey), projectId, sessionId, key: epic.epicKey, title: epic.title, objective: epic.objective, expectedOutcome: epic.expectedOutcome, acceptanceCriteria: epic.acceptanceCriteria, sequence: sequence + 1 })),
+    });
+    const persistedTickets = plan.requestPlan.tickets.map((ticket, index) => ({ id: `ticket-${randomUUID()}`, externalId: firstTicketNumber + index, ticket }));
+    await tx.ticket.createMany({
+      data: persistedTickets.map(({ id, externalId, ticket }) => ({ id, externalId, title: ticket.title, description: ticket.description, labels: ['vistory-plan', ticket.capability, ticket.kind], status: 'context_ready', riskLevel: plan.macroTask.riskLevel, projectId, epicId: resolveEpicId(ticket.epicKey), sourceSessionId: sessionId, plannerKey: ticket.ticketKey, kind: ticket.kind, capability: ticket.capability, complexity: ticket.complexity, dependsOn: ticket.dependsOn, acceptanceCriteria: ticket.acceptanceCriteria, definitionOfDone: ticket.definitionOfDone })),
+    });
+    await tx.specification.createMany({
+      data: persistedTickets.map(({ id, ticket }) => ({ ticketId: id, content: plannedSpecification(ticket.title, ticket.description, ticket.acceptanceCriteria, ticket.definitionOfDone), generatedFromHash: plan.requestPlan.objectiveHash, status: 'DRAFT' })),
+    });
     if (requiresApproval) {
       await tx.approvalRequest.create({
         data: {
