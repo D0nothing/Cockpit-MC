@@ -14,6 +14,13 @@ export type SessionLaunchResult =
   | { kind: 'approval'; sessionId: string }
   | { kind: 'run'; runId: string };
 
+export interface ReadySessionSummary {
+  id: string;
+  projectId: string;
+  objective: string;
+  state: 'ready';
+}
+
 export const demoTickets: TicketSummary[] = [
   {
     id: 'demo-142',
@@ -143,10 +150,52 @@ export async function getProjects(): Promise<ProjectSummary[]> {
   return value.map(projectSummary);
 }
 
+export async function updateProjectApprovalPolicy(
+  project: ProjectSummary,
+  actorId: string,
+  approvalMode: ProjectSummary['approvalMode'],
+  reason: string,
+  expiresAt?: string,
+): Promise<ProjectSummary> {
+  const value = await apiRequest(`/projects/${encodeURIComponent(project.id)}/approval-policy`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      actorId,
+      approvalMode,
+      expectedVersion: project.approvalPolicyVersion,
+      reason,
+      confirmation: approvalMode === 'SOLO_DEV' ? 'ENABLE SOLO_DEV' : 'DISABLE SOLO_DEV',
+      expiresAt,
+    }),
+  });
+  return projectSummary(value);
+}
+
+export async function reconcileTicketWorkflow(ticketId: string, projectId: string, actorId: string, pullRequestUrl: string): Promise<void> {
+  await apiRequest(`/tickets/${encodeURIComponent(ticketId)}/workflow-reconciliation`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, actorId, pullRequestUrl }),
+  });
+}
+
 export async function getRuns(projectId: string): Promise<RunSummary[]> {
   const value = await apiRequest(`/runs?projectId=${encodeURIComponent(projectId)}`);
   if (!Array.isArray(value)) throw new Error('Run list is invalid');
   return value.map(runSummary);
+}
+
+export async function getReadySessions(projectId: string): Promise<ReadySessionSummary[]> {
+  const value = await apiRequest(`/projects/${encodeURIComponent(projectId)}/sessions`);
+  if (!Array.isArray(value)) throw new Error('Session list is invalid');
+  return value.map(sessionSummary).filter((session): session is ReadySessionSummary => session.state === 'ready');
+}
+
+export async function startSessionRun(projectId: string, sessionId: string): Promise<RunSummary> {
+  const value = await apiRequest(`/sessions/${encodeURIComponent(sessionId)}/runs`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, actorId: 'user-alice', idempotencyKey: `run-${sessionId}` }),
+  });
+  return runSummary(value);
 }
 
 export async function launchSession(projectId: string, objective: string, riskLevel: SessionRiskLevel): Promise<SessionLaunchResult> {
@@ -197,6 +246,13 @@ function projectSummary(value: unknown): ProjectSummary {
     profileVersion: integer(input.profileVersion, 'Project.profileVersion'),
     githubOwner: string(input.githubOwner, 'Project.githubOwner'),
     githubRepository: string(input.githubRepository, 'Project.githubRepository'),
+    approvalMode: choice(input.approvalMode, 'Project.approvalMode', ['FOUR_EYES', 'SOLO_DEV']),
+    effectiveApprovalMode: choice(input.effectiveApprovalMode, 'Project.effectiveApprovalMode', ['FOUR_EYES', 'SOLO_DEV']),
+    approvalPolicyVersion: integer(input.approvalPolicyVersion, 'Project.approvalPolicyVersion'),
+    soloDevExpiresAt: nullableString(input.soloDevExpiresAt, 'Project.soloDevExpiresAt'),
+    approvalPolicyUpdatedAt: nullableString(input.approvalPolicyUpdatedAt, 'Project.approvalPolicyUpdatedAt'),
+    approvalPolicyUpdatedBy: nullableString(input.approvalPolicyUpdatedBy, 'Project.approvalPolicyUpdatedBy'),
+    approvalPolicyReason: nullableString(input.approvalPolicyReason, 'Project.approvalPolicyReason'),
   };
 }
 
@@ -218,6 +274,18 @@ function runSummary(value: unknown): RunSummary {
     session: { objective: string(session.objective, 'Run.session.objective') },
     tasks,
   };
+}
+
+function sessionSummary(value: unknown): ReadySessionSummary | { id: string; projectId: string; objective: string; state: string } {
+  const input = object(value, 'Session');
+  const state = string(input.state, 'Session.state');
+  const summary = {
+    id: string(input.id, 'Session.id'),
+    projectId: string(input.projectId, 'Session.projectId'),
+    objective: string(input.objective, 'Session.objective'),
+    state,
+  };
+  return state === 'ready' ? { ...summary, state } : summary;
 }
 
 export function object(value: unknown, path: string): Record<string, unknown> {
@@ -247,4 +315,8 @@ export function integer(value: unknown, path: string): number {
 export function choice<const T extends readonly string[]>(value: unknown, path: string, choices: T): T[number] {
   if (typeof value !== 'string' || !(choices as readonly string[]).includes(value)) throw new Error(`${path} is invalid`);
   return value as T[number];
+}
+
+function nullableString(value: unknown, path: string): string | null {
+  return value === null ? null : string(value, path);
 }

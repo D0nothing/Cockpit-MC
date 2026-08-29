@@ -4,6 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { dispatchCodex } from '../github';
 import { cleanPromptValue, HttpError, requireDatabase } from '../http';
 import { recordAudit } from '../audit/audit';
+import { assertSoloDevelopmentBoundary, boundedSoloDevelopmentExecution } from '../control/project-approval-policy';
 
 const include = { project: true, assignee: true, specification: true, validations: { include: { validator: true } }, workflow: true } as const;
 
@@ -97,6 +98,7 @@ export async function launchWorkflow(prisma: PrismaClient, id: string, body: unk
   if (ticket.riskLevel !== 'standard' && ticket.project.requireSecondaryForSensitive && !ticket.validations.some((validation) => validation.kind === 'SECONDARY' && validation.approved)) throw new HttpError(403, 'Secondary validation is missing');
 
   const branchName = `codex/ticket-${ticket.externalId}-${slug(ticket.title)}`.slice(0, 100);
+  if (mode === WorkflowMode.CODEX) assertSoloDevelopmentBoundary(ticket.project, boundedSoloDevelopmentExecution(branchName));
   if (mode === WorkflowMode.CODEX) await dispatchCodex(branchName, ticket.id, ticket.project);
   const status: TicketStatus = mode === WorkflowMode.CODEX ? 'ai_requested' : 'human_review_required';
   await prisma.$transaction([

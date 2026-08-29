@@ -1,4 +1,4 @@
-import type { ProjectStatus, TaskNode, TaskState, WorkerRunState } from './domain';
+import type { ProjectApprovalMode, ProjectStatus, TaskNode, TaskState, WorkerRunState } from './domain';
 
 export interface ProjectSummary {
   id: string;
@@ -8,6 +8,13 @@ export interface ProjectSummary {
   profileVersion: number;
   githubOwner: string;
   githubRepository: string;
+  approvalMode: ProjectApprovalMode;
+  effectiveApprovalMode: ProjectApprovalMode;
+  approvalPolicyVersion: number;
+  soloDevExpiresAt: string | null;
+  approvalPolicyUpdatedAt: string | null;
+  approvalPolicyUpdatedBy: string | null;
+  approvalPolicyReason: string | null;
 }
 
 export interface RunSummary {

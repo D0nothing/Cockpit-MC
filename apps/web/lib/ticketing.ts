@@ -6,7 +6,7 @@ export interface GitHubIssueReceipt {
   state: 'succeeded';
   remoteId: string;
   remoteUrl: string;
-  outcome: 'created' | 'reconciled' | 'already-linked';
+  outcome: 'created' | 'reconciled' | 'updated' | 'already-linked';
 }
 
 export async function publishTicketToGitHub(ticketId: string): Promise<GitHubIssueReceipt> {
@@ -17,7 +17,7 @@ export async function publishTicketToGitHub(ticketId: string): Promise<GitHubIss
     state: choice(value.state, 'GitHub Issue receipt.state', ['succeeded']),
     remoteId: string(value.remoteId, 'GitHub Issue receipt.remoteId'),
     remoteUrl: githubIssueUrl(value.remoteUrl),
-    outcome: choice(value.outcome, 'GitHub Issue receipt.outcome', ['created', 'reconciled', 'already-linked']),
+    outcome: choice(value.outcome, 'GitHub Issue receipt.outcome', ['created', 'reconciled', 'updated', 'already-linked']),
   };
 }
 

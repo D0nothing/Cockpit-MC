@@ -48,7 +48,9 @@ modèle et réponses fournisseur sont non fiables.
 | Vol ou fixation de session | état OAuth aléatoire, cookie signé `HttpOnly`/`Secure`, expiration huit heures, aucun jeton GitHub conservé | révocation centralisée et step-up avant plusieurs utilisateurs |
 | CSRF par cookie | toute mutation authentifiée par session exige une origine exacte de `WEB_ORIGIN` | CSP et tests de navigateur sur le domaine final |
 | Mauvais compte GitHub | comparaison insensible à la casse avec `GITHUB_ALLOWED_LOGIN`, refus `403` avant émission de session | revue périodique du propriétaire du compte |
-| Fausse identité humaine | accès au cockpit borné à un compte GitHub ; séparation demandeur/approbateur dans le domaine | identité OIDC signée par rôle ; les identités métier saisies restent développement/pilote seulement |
+| Fausse identité humaine | accès au cockpit borné à un compte GitHub ; l'acteur des mutations vient de la session en production | identité OIDC signée par rôle ; les identités métier saisies restent développement/pilote seulement |
+| Exception solo trop large | `FOUR_EYES` par défaut, activation administrateur versionnée par projet, motif/confirmation/expiration, quorum limité à un, enveloppe `codex/*` + PR brouillon + tests | revue périodique des exceptions actives et alerte avant expiration |
+| Réutilisation d'une fausse preuve GitHub | URL limitée au dépôt du projet, PR ouverte/brouillon, branche `codex/*`, SHA et runs GitHub Actions `pull_request` réussis relus côté serveur, reçu durable | attestation GitHub App et provenance signée |
 | Cardinalité ou contenu dans la télémétrie | routes normalisées, durées bornées à 200 échantillons | export OTLP protégé et politique de rétention |
 
 ## Cas de refus vérifiés
@@ -58,7 +60,9 @@ modèle et réponses fournisseur sont non fiables.
 - GitHub Issues sans grant explicite ou sans jeton séparé ;
 - double demande GitHub Issues pendant un effet en cours ;
 - cible GitHub différente du dépôt enregistré dans le projet ;
-- auto-approbation ;
+- auto-approbation hors exception `SOLO_DEV` active et explicitement confirmée ;
+- auto-approbation `SOLO_DEV` pour un quorum supérieur à un, une branche hors
+  `codex/*`, une PR non brouillon, une fusion, la production ou un service live ;
 - lecture ou décision d'approbation depuis un autre projet ;
 - commande invalide ou rejouée avec une autre intention ;
 - clé d'idempotence réutilisée pour une autre ressource.

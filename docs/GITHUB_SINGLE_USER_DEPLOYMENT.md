@@ -81,6 +81,12 @@ GITHUB_WORKFLOW_ID=codex.yml
 ENABLED_PROVIDERS=github-actions
 ```
 
+Ce jeton d'exécution est limité au seul dépôt pilote avec **Actions en
+lecture/écriture**, **Pull requests en lecture** et la lecture obligatoire des
+métadonnées. La réconciliation vérifie une PR ouverte et brouillon, puis relit les
+exécutions GitHub Actions `pull_request` du SHA de tête. Elle n'exige pas la
+permission GitHub Checks, indisponible pour certains jetons personnels fins.
+
 Ajouter dans les secrets GitHub Actions :
 
 ```text
@@ -116,15 +122,44 @@ sable et vérifier qu'un double clic ne produit qu'une Issue.
 3. `D0nothing` peut se connecter ; tout autre login reçoit `403`.
 4. Une mutation sans origine ou avec une autre origine reçoit `403`.
 5. Aucun secret n'apparaît dans le bundle, les réponses ou les logs.
-6. Les six migrations sont appliquées et les données survivent au redéploiement.
+6. Les sept migrations sont appliquées et les données survivent au redéploiement.
 7. Le parcours demande → tickets → preuve → feedback → KB réussit en ligne.
 8. Après activation GitHub, un ticket produit une PR brouillon et son reçu SHA-256,
    sans merge automatique.
 9. Après activation de `github-issues`, un ticket produit une seule Issue et un
    second appel retourne le même lien sans nouvel effet.
 
+## 8. Exception projet `SOLO_DEV`
+
+Chaque projet est créé et migré avec `approvalMode=FOUR_EYES`. L'exception ne se
+configure pas par variable globale et n'est jamais déduite du nom, du dépôt ou du
+`projectId`. Depuis la page **Projets**, le compte `GITHUB_ALLOWED_LOGIN` peut :
+
+1. fournir un motif d'au moins dix caractères ;
+2. confirmer explicitement `ENABLE SOLO_DEV` ;
+3. définir facultativement une expiration, au plus trente jours ;
+4. révoquer l'exception avec `DISABLE SOLO_DEV`.
+
+L'API incrémente `approvalPolicyVersion` et `profileVersion`, conserve l'acteur,
+la date et le motif, puis ajoute un événement à la chaîne d'audit du projet. Une
+expiration rend immédiatement le mode strict effectif, même avant la révocation
+administrative. Aucun secret supplémentaire n'est nécessaire.
+
+En `SOLO_DEV`, l'auto-approbation exige une confirmation distincte dans l'écran
+**Validations**. Elle ne remplace jamais un quorum de deux personnes. Les routes
+d'exécution appliquent toujours l'enveloppe de développement : branche `codex/*`,
+PR brouillon et tests obligatoires ; fusion, déploiement production, secrets live,
+Stripe live, génération live et courtier d'impression live sont refusés.
+
+La réconciliation d'une PR existante exige le jeton GitHub serveur déjà borné au
+dépôt. Elle relit la PR et les exécutions GitHub Actions `pull_request` du SHA de
+tête sans utiliser de donnée fournie comme preuve par le navigateur.
+
 ## Retour arrière
 
+- révoquer toute exception `SOLO_DEV` dans le cockpit avant de restaurer une
+  version antérieure ; si le cockpit est indisponible, attendre son expiration
+  coupe l'auto-approbation sans mutation ;
 - retirer `github-actions` de `ENABLED_PROVIDERS` coupe immédiatement tout nouvel
   effet externe ;
 - retirer `github-issues` de `ENABLED_PROVIDERS` coupe immédiatement toute nouvelle
@@ -132,3 +167,7 @@ sable et vérifier qu'un double clic ne produit qu'une Issue.
 - révoquer le secret OAuth invalide les nouvelles connexions ;
 - changer `AUTH_SESSION_SECRET` invalide toutes les sessions existantes ;
 - restaurer le dernier déploiement Vercel sain et la sauvegarde PostgreSQL testée.
+
+La migration est additive. Le rollback applicatif peut laisser les colonnes et
+l'enum inutilisés ; ne les supprimer qu'après vérification qu'aucun projet n'est
+en `SOLO_DEV` et après sauvegarde. Cela évite un rollback destructif en urgence.

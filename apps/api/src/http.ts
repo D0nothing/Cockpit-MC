@@ -47,6 +47,9 @@ export function configureCors(request: IncomingMessage, response: ServerResponse
 }
 
 export async function readJson<T>(request: IncomingMessage, maxBytes = 64_000): Promise<T> {
+  const preParsed = (request as IncomingMessage & { body?: unknown }).body;
+  if (preParsed !== undefined) return parseRequestBody<T>(preParsed, maxBytes);
+
   const chunks: Buffer[] = [];
   let total = 0;
 
@@ -59,8 +62,15 @@ export async function readJson<T>(request: IncomingMessage, maxBytes = 64_000): 
 
   if (chunks.length === 0) return {} as T;
 
+  return parseRequestBody<T>(Buffer.concat(chunks), maxBytes);
+}
+
+function parseRequestBody<T>(value: unknown, maxBytes: number): T {
+  if (value && typeof value === 'object' && !Buffer.isBuffer(value)) return value as T;
+  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8');
+  if (buffer.length > maxBytes) throw new HttpError(413, 'Payload too large');
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
+    return JSON.parse(buffer.toString('utf8')) as T;
   } catch {
     throw new HttpError(400, 'Invalid JSON payload');
   }

@@ -183,3 +183,23 @@ secrets approuvés et une autorisation humaine séparée.
 - `npm audit --audit-level=high` : 0 vulnérabilité ;
 - `prisma migrate status` : 6 migrations, schéma à jour ;
 - fournisseur maintenu désactivé : aucun effet GitHub réel pendant la validation.
+
+## Jalon 8 — Gouvernance projet mono-utilisateur
+
+Critères :
+
+- tous les projets existants et futurs utilisent `FOUR_EYES` par défaut ;
+- seul le compte administrateur configuré peut activer ou révoquer `SOLO_DEV`,
+  avec confirmation, motif, version et audit ;
+- un projet strict refuse l'auto-approbation, un projet solo actif l'accepte pour
+  un quorum de un, et un second projet reste strict ;
+- l'expiration restaure automatiquement le comportement strict ;
+- une branche hors `codex/*`, une PR non brouillon, l'absence de tests, une fusion
+  automatique, un déploiement production ou un fournisseur live restent refusés ;
+- une PR existante n'est réconciliée qu'après vérification serveur du dépôt, du
+  SHA et des checks, puis réutilisée par le run sans nouvelle branche ni PR ;
+- la migration est additive, rétrocompatible et son rollback ne nécessite aucune
+  suppression de données en urgence.
+
+Preuves : tests unitaires de politique et de preuve GitHub, test E2E PostgreSQL
+d'isolation/audit, lint, tests, build, validation Prisma et audit npm.

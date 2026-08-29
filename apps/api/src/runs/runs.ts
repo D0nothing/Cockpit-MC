@@ -10,18 +10,20 @@ import {
   type WorkerRunState,
 } from '@software-factory/contracts';
 import { recordAudit } from '../audit/audit';
+import { projectApprovalPolicyReadModel, projectPolicySelect } from '../control/project-approval-policy';
 import { HttpError, requireDatabase } from '../http';
 import { buildRequestPlan, requestPlanToTaskNodes } from '../planning/planner';
 
 const simulatorCapacity = 2;
 const defaultBudget = { maxDurationMs: 300_000, maxCostCents: 0, maxContextTokens: 20_000, maxConcurrency: simulatorCapacity };
 
-export function listProjects(prisma: PrismaClient) {
+export async function listProjects(prisma: PrismaClient) {
   requireDatabase();
-  return prisma.project.findMany({
+  const projects = await prisma.project.findMany({
     orderBy: { name: 'asc' },
-    select: { id: true, name: true, slug: true, status: true, profileVersion: true, githubOwner: true, githubRepository: true },
+    select: projectPolicySelect,
   });
+  return projects.map((project) => projectApprovalPolicyReadModel(project));
 }
 
 export function listSessions(prisma: PrismaClient, projectId: string) {
@@ -122,41 +124,22 @@ export async function planSession(prisma: PrismaClient, sessionId: string, body:
         nodes: plan.graph.nodes as unknown as Prisma.InputJsonValue,
       },
     });
-    const epicIds = new Map<string, string>();
-    for (const [sequence, epic] of plan.requestPlan.epics.entries()) {
-      const epicId = `epic-${sessionId}-${epic.epicKey}`;
-      epicIds.set(epic.epicKey, epicId);
-      await tx.epic.create({ data: { id: epicId, projectId, sessionId, key: epic.epicKey, title: epic.title, objective: epic.objective, expectedOutcome: epic.expectedOutcome, acceptanceCriteria: epic.acceptanceCriteria, sequence: sequence + 1 } });
-    }
-    for (const [index, ticket] of plan.requestPlan.tickets.entries()) {
-      await tx.ticket.create({
-        data: {
-          externalId: firstTicketNumber + index,
-          title: ticket.title,
-          description: ticket.description,
-          labels: ['vistory-plan', ticket.capability, ticket.kind],
-          status: 'context_ready',
-          riskLevel: plan.macroTask.riskLevel,
-          projectId,
-          epicId: epicIds.get(ticket.epicKey),
-          sourceSessionId: sessionId,
-          plannerKey: ticket.ticketKey,
-          kind: ticket.kind,
-          capability: ticket.capability,
-          complexity: ticket.complexity,
-          dependsOn: ticket.dependsOn,
-          acceptanceCriteria: ticket.acceptanceCriteria,
-          definitionOfDone: ticket.definitionOfDone,
-          specification: {
-            create: {
-              content: plannedSpecification(ticket.title, ticket.description, ticket.acceptanceCriteria, ticket.definitionOfDone),
-              generatedFromHash: plan.requestPlan.objectiveHash,
-              status: 'DRAFT',
-            },
-          },
-        },
-      });
-    }
+    const epicIds = new Map(plan.requestPlan.epics.map((epic) => [epic.epicKey, `epic-${sessionId}-${epic.epicKey}`]));
+    const resolveEpicId = (epicKey: string) => {
+      const epicId = epicIds.get(epicKey);
+      if (!epicId) throw new HttpError(500, `Planned epic ${epicKey} is missing`);
+      return epicId;
+    };
+    await tx.epic.createMany({
+      data: plan.requestPlan.epics.map((epic, sequence) => ({ id: resolveEpicId(epic.epicKey), projectId, sessionId, key: epic.epicKey, title: epic.title, objective: epic.objective, expectedOutcome: epic.expectedOutcome, acceptanceCriteria: epic.acceptanceCriteria, sequence: sequence + 1 })),
+    });
+    const persistedTickets = plan.requestPlan.tickets.map((ticket, index) => ({ id: `ticket-${randomUUID()}`, externalId: firstTicketNumber + index, ticket }));
+    await tx.ticket.createMany({
+      data: persistedTickets.map(({ id, externalId, ticket }) => ({ id, externalId, title: ticket.title, description: ticket.description, labels: ['vistory-plan', ticket.capability, ticket.kind], status: 'context_ready', riskLevel: plan.macroTask.riskLevel, projectId, epicId: resolveEpicId(ticket.epicKey), sourceSessionId: sessionId, plannerKey: ticket.ticketKey, kind: ticket.kind, capability: ticket.capability, complexity: ticket.complexity, dependsOn: ticket.dependsOn, acceptanceCriteria: ticket.acceptanceCriteria, definitionOfDone: ticket.definitionOfDone })),
+    });
+    await tx.specification.createMany({
+      data: persistedTickets.map(({ id, ticket }) => ({ ticketId: id, content: plannedSpecification(ticket.title, ticket.description, ticket.acceptanceCriteria, ticket.definitionOfDone), generatedFromHash: plan.requestPlan.objectiveHash, status: 'DRAFT' })),
+    });
     if (requiresApproval) {
       await tx.approvalRequest.create({
         data: {
@@ -173,6 +156,99 @@ export async function planSession(prisma: PrismaClient, sessionId: string, body:
     }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   await recordAudit(prisma, { projectId, actorId, action: 'session.planned', targetType: 'session', targetId: sessionId, metadata: { macroTaskId: plan.macroTask.macroTaskId, graphId: plan.graph.graphId, epics: plan.requestPlan.epics.length, tickets: plan.requestPlan.tickets.length, requiredApprovals: plan.macroTask.requiredApprovals } });
+  return getSession(prisma, sessionId, projectId);
+}
+
+export async function reviseSession(prisma: PrismaClient, sessionId: string, body: unknown) {
+  requireDatabase();
+  const input = bodyRecord(body);
+  const projectId = bodyString(input, 'projectId', 128);
+  const actorId = bodyString(input, 'actorId', 128);
+  const objective = bodyString(input, 'objective', 10_000);
+  const session = await prisma.workSession.findFirst({
+    where: { id: sessionId, projectId },
+    include: {
+      macroTasks: { orderBy: { version: 'desc' }, take: 1, include: { graph: true } },
+      epics: { select: { id: true, key: true } },
+      plannedTickets: { select: { id: true, plannerKey: true } },
+      runs: { select: { id: true }, take: 1 },
+    },
+  });
+  if (!session) throw new HttpError(404, 'Session not found');
+  if (session.objective === objective) return getSession(prisma, sessionId, projectId);
+  if (session.runs.length > 0) throw new HttpError(409, 'A session with a run cannot be revised');
+  if (!['planning', 'awaiting_approval', 'ready'].includes(session.state)) throw new HttpError(409, `Session cannot be revised from ${session.state}`);
+  const currentMacroTask = session.macroTasks[0];
+  if (!currentMacroTask?.graph) throw new HttpError(409, 'A planned session is required');
+
+  const nextVersion = currentMacroTask.version + 1;
+  const plan = buildDeterministicPlan({ projectId, sessionId, objective, riskLevel: session.riskLevel, version: nextVersion });
+  const epics = new Map(session.epics.map((epic) => [epic.key, epic.id]));
+  const tickets = new Map(session.plannedTickets.flatMap((ticket) => ticket.plannerKey ? [[ticket.plannerKey, ticket.id] as const] : []));
+  const plannedEpicKeys = plan.requestPlan.epics.map(({ epicKey }) => epicKey).sort();
+  const plannedTicketKeys = plan.requestPlan.tickets.map(({ ticketKey }) => ticketKey).sort();
+  if (JSON.stringify([...epics.keys()].sort()) !== JSON.stringify(plannedEpicKeys) || JSON.stringify([...tickets.keys()].sort()) !== JSON.stringify(plannedTicketKeys)) {
+    throw new HttpError(409, 'A revision cannot change persisted plan topology');
+  }
+  const requiresApproval = plan.macroTask.requiredApprovals > 0;
+
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.workSession.updateMany({
+      where: { id: sessionId, projectId, version: session.version },
+      data: { objective, state: requiresApproval ? 'awaiting_approval' : 'ready', version: { increment: 1 } },
+    });
+    if (updated.count !== 1) throw new HttpError(409, 'Session was revised concurrently');
+    await tx.approvalRequest.updateMany({ where: { sessionId, status: 'pending' }, data: { status: 'changes_requested' } });
+    await tx.macroTask.create({
+      data: {
+        id: plan.macroTask.macroTaskId,
+        projectId,
+        sessionId,
+        version: plan.macroTask.version,
+        objective: plan.macroTask.objective,
+        expectedOutcome: plan.macroTask.expectedOutcome,
+        constraints: plan.macroTask.constraints,
+        nonGoals: plan.macroTask.nonGoals,
+        deliverables: plan.macroTask.deliverables,
+        acceptanceCriteria: plan.macroTask.acceptanceCriteria,
+        riskLevel: plan.macroTask.riskLevel,
+        requiredApprovals: plan.macroTask.requiredApprovals,
+        requiredCapabilities: plan.macroTask.requiredCapabilities,
+        budgets: plan.macroTask.budgets as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await tx.taskGraph.create({
+      data: {
+        id: plan.graph.graphId,
+        projectId,
+        sessionId,
+        macroTaskId: plan.macroTask.macroTaskId,
+        version: plan.graph.macroTaskVersion,
+        nodes: plan.graph.nodes as unknown as Prisma.InputJsonValue,
+      },
+    });
+    for (const [sequence, epic] of plan.requestPlan.epics.entries()) {
+      await tx.epic.update({ where: { id: epics.get(epic.epicKey) }, data: { title: epic.title, objective: epic.objective, expectedOutcome: epic.expectedOutcome, acceptanceCriteria: epic.acceptanceCriteria, sequence: sequence + 1, status: 'planned' } });
+    }
+    for (const ticket of plan.requestPlan.tickets) {
+      const ticketId = tickets.get(ticket.ticketKey);
+      if (!ticketId) throw new HttpError(409, `Persisted ticket ${ticket.ticketKey} is missing`);
+      await tx.ticket.update({
+        where: { id: ticketId },
+        data: { title: ticket.title, description: ticket.description, labels: ['vistory-plan', ticket.capability, ticket.kind], status: 'context_ready', kind: ticket.kind, capability: ticket.capability, complexity: ticket.complexity, dependsOn: ticket.dependsOn, acceptanceCriteria: ticket.acceptanceCriteria, definitionOfDone: ticket.definitionOfDone },
+      });
+      await tx.specification.update({
+        where: { ticketId },
+        data: { content: plannedSpecification(ticket.title, ticket.description, ticket.acceptanceCriteria, ticket.definitionOfDone), generatedFromHash: plan.requestPlan.objectiveHash, status: 'DRAFT', version: { increment: 1 } },
+      });
+    }
+    if (requiresApproval) {
+      await tx.approvalRequest.create({
+        data: { projectId, sessionId, macroTaskId: plan.macroTask.macroTaskId, targetVersion: plan.macroTask.version, riskLevel: plan.macroTask.riskLevel, requiredApprovals: plan.macroTask.requiredApprovals, requesterId: actorId, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000) },
+      });
+    }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  await recordAudit(prisma, { projectId, actorId, action: 'session.revised', targetType: 'session', targetId: sessionId, metadata: { fromVersion: currentMacroTask.version, toVersion: nextVersion, objectiveHash: plan.requestPlan.objectiveHash, epics: plan.requestPlan.epics.length, tickets: plan.requestPlan.tickets.length, requiredApprovals: plan.macroTask.requiredApprovals } });
   return getSession(prisma, sessionId, projectId);
 }
 
@@ -212,7 +288,7 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
     where: { id: sessionId, projectId, project: { status: 'active' } },
     include: {
       macroTasks: { orderBy: { version: 'desc' }, take: 1, include: { graph: true, approvalRequest: true } },
-      plannedTickets: { select: { id: true, plannerKey: true } },
+      plannedTickets: { select: { id: true, plannerKey: true, workflow: true } },
     },
   });
   const macroTask = session?.macroTasks[0];
@@ -220,13 +296,18 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
   if (session.state !== 'ready') throw new HttpError(409, `Session cannot start from ${session.state}`);
   if (macroTask.requiredApprovals > 0 && macroTask.approvalRequest?.status !== 'approved') throw new HttpError(403, 'Required human approval is missing');
   const graph = parsePersistedGraph(projectId, sessionId, macroTask.id, macroTask.version, macroTask.graph.id, macroTask.graph.nodes);
-  const ticketIds = new Map(session.plannedTickets.flatMap((ticket) => ticket.plannerKey ? [[ticket.plannerKey, ticket.id] as const] : []));
+  const ticketsByPlannerKey = new Map(session.plannedTickets.flatMap((ticket) => ticket.plannerKey ? [[ticket.plannerKey, ticket] as const] : []));
+  const ticketIds = new Map([...ticketsByPlannerKey].map(([key, ticket]) => [key, ticket.id] as const));
   if (graph.nodes.some((node) => !ticketIds.has(node.taskId))) throw new HttpError(409, 'Every run task must reference a planned ticket');
+  const reconciledTaskIds = reconciledWorkflowTaskIds(graph.nodes, ticketsByPlannerKey);
   const correlationId = `correlation-${randomUUID()}`;
 
   const run = await prisma.$transaction(async (tx) => {
+    const allReconciled = reconciledTaskIds.size === graph.nodes.length;
+    const initialState = allReconciled ? 'review' as const : reconciledTaskIds.size > 0 ? 'running' as const : 'queued' as const;
+    const eventCount = 1 + (reconciledTaskIds.size > 0 ? 1 : 0) + reconciledTaskIds.size + (allReconciled ? 1 : 0);
     const created = await tx.executionRun.create({
-      data: { projectId, sessionId, macroTaskId: macroTask.id, graphId: graph.graphId, correlationId, idempotencyKey, state: 'queued', lastSequence: 1 },
+      data: { projectId, sessionId, macroTaskId: macroTask.id, graphId: graph.graphId, correlationId, idempotencyKey, state: initialState, lastSequence: eventCount },
     });
     await tx.runTask.createMany({
       data: graph.nodes.map((node) => ({
@@ -239,7 +320,7 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
         roleCapability: node.roleCapability,
         complexity: node.complexity,
         dependsOn: node.dependsOn,
-        state: node.dependsOn.length === 0 ? 'ready' : 'blocked',
+        state: reconciledTaskIds.has(node.taskId) ? 'completed' : node.dependsOn.every((dependency) => reconciledTaskIds.has(dependency)) ? 'ready' : 'blocked',
         maxAttempts: node.maxAttempts,
         definitionOfReady: node.definitionOfReady,
         definitionOfDone: node.definitionOfDone,
@@ -249,11 +330,63 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
     await tx.runEvent.create({
       data: eventData(created.id, projectId, sessionId, correlationId, 1, 'run.queued', 'human', actorId, { macroTaskId: macroTask.id, graphId: graph.graphId }),
     });
-    await tx.workSession.update({ where: { id: sessionId }, data: { state: 'running', version: { increment: 1 } } });
+    let sequence = 1;
+    if (reconciledTaskIds.size > 0) {
+      sequence += 1;
+      await tx.runEvent.create({ data: eventData(created.id, projectId, sessionId, correlationId, sequence, 'run.running', 'human', actorId, { reconciledTasks: reconciledTaskIds.size }) });
+    }
+    for (const taskId of reconciledTaskIds) {
+      const workflow = ticketsByPlannerKey.get(taskId)?.workflow;
+      if (!workflow?.pullRequestUrl || !workflow.headCommitSha) continue;
+      sequence += 1;
+      await tx.runArtifact.create({
+        data: {
+          id: `artifact-${randomUUID()}`,
+          projectId,
+          sessionId,
+          runId: created.id,
+          taskId,
+          kind: 'pull_request',
+          uri: workflow.pullRequestUrl,
+          mediaType: 'text/uri-list',
+          contentHash: createHash('sha256').update(workflow.headCommitSha).digest('hex'),
+        },
+      });
+      await tx.runEvent.create({ data: eventData(created.id, projectId, sessionId, correlationId, sequence, 'task.reconciled', 'human', actorId, { taskId, pullRequestUrl: workflow.pullRequestUrl, headCommitSha: workflow.headCommitSha }) });
+    }
+    if (allReconciled) {
+      sequence += 1;
+      await tx.runEvent.create({ data: eventData(created.id, projectId, sessionId, correlationId, sequence, 'run.review_required', 'human', actorId, { reconciledTasks: reconciledTaskIds.size }) });
+    }
+    await tx.workSession.update({ where: { id: sessionId }, data: { state: allReconciled ? 'review' : 'running', version: { increment: 1 } } });
     return created;
   });
-  await recordAudit(prisma, { projectId, actorId, action: 'run.started', targetType: 'run', targetId: run.id, metadata: { sessionId, correlationId } });
+  await recordAudit(prisma, { projectId, actorId, action: 'run.started', targetType: 'run', targetId: run.id, metadata: { sessionId, correlationId, reconciledTasks: [...reconciledTaskIds] } });
   return getRun(prisma, run.id, projectId);
+}
+
+export function reconciledWorkflowTaskIds(
+  nodes: readonly { taskId: string; dependsOn: string[] }[],
+  tickets: ReadonlyMap<string, { workflow: { branchName: string | null; pullRequestUrl: string | null; headCommitSha: string | null; ciStatus: string | null; reconciledAt: Date | null } | null }>,
+): Set<string> {
+  const completed = new Set<string>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      if (completed.has(node.taskId) || !node.dependsOn.every((dependency) => completed.has(dependency))) continue;
+      const workflow = tickets.get(node.taskId)?.workflow;
+      const valid = workflow?.ciStatus === 'success'
+        && workflow.reconciledAt !== null
+        && Boolean(workflow.pullRequestUrl)
+        && Boolean(workflow.headCommitSha && /^[a-f0-9]{40}$/i.test(workflow.headCommitSha))
+        && Boolean(workflow.branchName && /^codex\/[A-Za-z0-9._/-]{1,90}$/.test(workflow.branchName));
+      if (!valid) continue;
+      completed.add(node.taskId);
+      changed = true;
+    }
+  }
+  return completed;
 }
 
 export async function getRun(prisma: PrismaClient, runId: string, projectId: string) {
@@ -312,8 +445,9 @@ export async function commandRun(prisma: PrismaClient, runId: string, body: unkn
   return command;
 }
 
-export function buildDeterministicPlan(input: { projectId: string; sessionId: string; objective: string; riskLevel?: 'standard' | 'sensitive' | 'critical' }): { macroTask: MacroTaskContract; graph: TaskGraphContract; requestPlan: RequestPlan } {
-  const macroTaskId = `macro-${input.sessionId}-v1`;
+export function buildDeterministicPlan(input: { projectId: string; sessionId: string; objective: string; riskLevel?: 'standard' | 'sensitive' | 'critical'; version?: number }): { macroTask: MacroTaskContract; graph: TaskGraphContract; requestPlan: RequestPlan } {
+  const version = input.version ?? 1;
+  const macroTaskId = `macro-${input.sessionId}-v${version}`;
   const riskLevel = input.riskLevel ?? 'standard';
   const requestPlan = buildRequestPlan({ ...input, riskLevel });
   const nodes = requestPlanToTaskNodes(requestPlan);
@@ -321,7 +455,7 @@ export function buildDeterministicPlan(input: { projectId: string; sessionId: st
     schemaVersion: contractSchemaVersion,
     projectId: input.projectId,
     macroTaskId,
-    version: 1,
+    version,
     sessionId: input.sessionId,
     objective: input.objective,
     expectedOutcome: 'Un résultat vérifiable, prêt pour une revue humaine.',
@@ -337,10 +471,10 @@ export function buildDeterministicPlan(input: { projectId: string; sessionId: st
   const graph = parseTaskGraph({
     schemaVersion: contractSchemaVersion,
     projectId: input.projectId,
-    graphId: `graph-${input.sessionId}-v1`,
+    graphId: `graph-${input.sessionId}-v${version}`,
     sessionId: input.sessionId,
     macroTaskId,
-    macroTaskVersion: 1,
+    macroTaskVersion: version,
     nodes,
   });
   return { macroTask, graph, requestPlan };

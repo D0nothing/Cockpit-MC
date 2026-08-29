@@ -2,6 +2,7 @@ export const contractSchemaVersion = 1 as const;
 export type ContractSchemaVersion = typeof contractSchemaVersion;
 
 export type ProjectStatus = 'active' | 'suspended' | 'archived';
+export type ProjectApprovalMode = 'FOUR_EYES' | 'SOLO_DEV';
 export type DataClassification = 'public' | 'internal' | 'confidential' | 'restricted';
 export type DomainRiskLevel = 'standard' | 'sensitive' | 'critical';
 
@@ -221,6 +222,8 @@ export interface ApprovalDecision extends ProjectScopedContract {
   targetVersion: number;
   requesterId: string;
   approverId: string;
+  approvalMode?: ProjectApprovalMode;
+  soloDevConfirmed?: boolean;
   result: ApprovalResult;
   reason: string;
   decidedAt: string;

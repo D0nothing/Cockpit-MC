@@ -1,22 +1,26 @@
-import { ArrowLeft, Check, Circle, ExternalLink, FileText, Github, ShieldAlert, Sparkles, UserRound } from 'lucide-react';
+import { ArrowLeft, Check, Circle, ExternalLink, FileText, Github, Link2, ShieldAlert, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { TicketSummary } from '@software-factory/contracts';
-import { demoTickets, getTicket } from '../../lib/data';
+import { demoTickets, getTicket, reconcileTicketWorkflow } from '../../lib/data';
 import { publishTicketToGitHub } from '../../lib/ticketing';
 
 interface TicketDetailModel extends TicketSummary {
   sourceUrl?: string | null;
+  project?: { id: string; name: string };
   specification?: { content: string; version: number } | null;
+  workflow?: { branchName?: string | null; pullRequestUrl?: string | null; ciStatus?: string | null; reconciledAt?: string | null } | null;
 }
 
 type Notice = { kind: 'success' | 'error'; text: string };
 
-export default function TicketDetailPage({ id, onNavigate }: { id: string; onNavigate: (path: string) => void }) {
+export default function TicketDetailPage({ id, onNavigate, login }: { id: string; onNavigate: (path: string) => void; login: string }) {
   const [ticket, setTicket] = useState<TicketDetailModel>(demoTickets.find((item) => item.id === id) ?? demoTickets[0]);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [publishingIssue, setPublishingIssue] = useState(false);
+  const [pullRequestUrl, setPullRequestUrl] = useState('');
+  const [reconciling, setReconciling] = useState(false);
 
-  useEffect(() => { void getTicket(id).then(setTicket); }, [id]);
+  useEffect(() => { void getTicket(id).then((item) => { setTicket(item); setPullRequestUrl(item.workflow?.pullRequestUrl ?? ''); }); }, [id]);
 
   const spec = useMemo(() => ticket.specification?.content ?? `# Objectif\n\n${ticket.description}\n\n## Critères d’acceptation\n\n- La fonctionnalité est couverte par des tests automatisés\n- Aucun secret n’est exposé au navigateur\n- Le changement peut être déployé et annulé sans interruption\n\n## Hors périmètre\n\n- Merge automatique\n- Modification des droits de production`, [ticket]);
 
@@ -26,11 +30,31 @@ export default function TicketDetailPage({ id, onNavigate }: { id: string; onNav
     try {
       const result = await publishTicketToGitHub(ticket.id);
       setTicket((current) => ({ ...current, sourceUrl: result.remoteUrl }));
-      setNotice({ kind: 'success', text: result.outcome === 'created' ? 'Issue GitHub créée et reliée au ticket.' : 'Issue GitHub existante retrouvée et reliée au ticket.' });
+      setNotice({ kind: 'success', text: result.outcome === 'created' ? 'Issue GitHub créée et reliée au ticket.' : result.outcome === 'updated' ? 'Issue GitHub actualisée depuis le plan Vistory.' : 'Issue GitHub existante retrouvée et reliée au ticket.' });
     } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'La création de l’Issue GitHub a échoué.' });
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'La synchronisation de l’Issue GitHub a échoué.' });
     } finally {
       setPublishingIssue(false);
+    }
+  }
+
+  async function reconcileWorkflow() {
+    if (!ticket.project?.id || !pullRequestUrl.trim()) {
+      setNotice({ kind: 'error', text: 'Le projet et l’URL de la pull request sont requis.' });
+      return;
+    }
+    setReconciling(true);
+    setNotice(null);
+    try {
+      await reconcileTicketWorkflow(ticket.id, ticket.project.id, login, pullRequestUrl.trim());
+      const updated = await getTicket(id);
+      setTicket(updated);
+      setPullRequestUrl(updated.workflow?.pullRequestUrl ?? pullRequestUrl.trim());
+      setNotice({ kind: 'success', text: 'Pull request brouillon et preuves CI rattachées au ticket sans nouveau run.' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Le rattachement de la pull request a échoué.' });
+    } finally {
+      setReconciling(false);
     }
   }
 
@@ -45,7 +69,10 @@ export default function TicketDetailPage({ id, onNavigate }: { id: string; onNav
           <p>{ticket.description}</p>
         </div>
         {ticket.sourceUrl ? (
-          <a className="secondary" href={ticket.sourceUrl} target="_blank" rel="noreferrer"><Github size={17} />Voir sur GitHub<ExternalLink size={14} /></a>
+          <div className="detail-actions">
+            <a className="secondary" href={ticket.sourceUrl} target="_blank" rel="noreferrer"><Github size={17} />Voir sur GitHub<ExternalLink size={14} /></a>
+            <button className="secondary" type="button" disabled={publishingIssue} onClick={() => void publishIssue()}><Github size={17} />{publishingIssue ? 'Actualisation…' : 'Actualiser l’Issue GitHub'}</button>
+          </div>
         ) : (
           <button className="secondary" type="button" disabled={publishingIssue} onClick={() => void publishIssue()}><Github size={17} />{publishingIssue ? 'Création…' : 'Créer l’Issue GitHub'}</button>
         )}
@@ -53,6 +80,15 @@ export default function TicketDetailPage({ id, onNavigate }: { id: string; onNav
       <div className="detail-grid">
         <div className="detail-main">
           <WorkflowProgress />
+          <section className="panel reconciliation-panel">
+            <div className="panel-title"><div><Link2 size={19} /><h2>Réconcilier une proposition existante</h2></div>{ticket.workflow?.ciStatus && <span className="status green">CI {ticket.workflow.ciStatus}</span>}</div>
+            <p>Rattache une pull request brouillon <code>codex/*</code> du dépôt du projet après vérification de ses contrôles CI. Cette action ne crée ni branche, ni PR, ni fusion.</p>
+            <form className="reconciliation-form" onSubmit={(event) => { event.preventDefault(); void reconcileWorkflow(); }}>
+              <label>URL de la pull request GitHub<input type="url" required placeholder="https://github.com/organisation/depot/pull/123" value={pullRequestUrl} onChange={(event) => setPullRequestUrl(event.target.value)} /></label>
+              <button className="secondary" type="submit" disabled={reconciling || !ticket.project?.id}>{reconciling ? 'Vérification…' : 'Vérifier et rattacher'}</button>
+            </form>
+            {ticket.workflow?.pullRequestUrl && <p><a href={ticket.workflow.pullRequestUrl} target="_blank" rel="noreferrer">{ticket.workflow.branchName ?? 'Proposition GitHub'} <ExternalLink size={13} /></a>{ticket.workflow.reconciledAt ? ` · réconciliée le ${new Date(ticket.workflow.reconciledAt).toLocaleString('fr-FR')}` : ''}</p>}
+          </section>
           <section className="panel spec-panel">
             <div className="panel-title">
               <div><FileText size={19} /><h2>Spécification technique</h2><span className="version">v{ticket.specification?.version ?? 1}</span></div>

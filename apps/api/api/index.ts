@@ -3,13 +3,15 @@ import { PrismaClient } from '@prisma/client';
 import { listAudit, verifyProjectAudit } from '../src/audit/audit';
 import { beginGitHubLogin, clearSingleUserSession, completeGitHubLogin, readSingleUserSession } from '../src/auth/github-single-user';
 import { decideApproval, listApprovals } from '../src/control/approvals';
+import { updateProjectApprovalPolicy } from '../src/control/project-approval-policy';
+import { reconcileTicketWorkflow } from '../src/control/workflow-reconciliation';
 import { dispatchRunTask, getDispatchContext, reportDispatchResult } from '../src/execution/task-execution';
 import { authorizeCockpit, configureCors, HttpError, readJson, sendJson } from '../src/http';
 import { clearSessionMemory, createFeedback, decideKnowledgeCandidate, listFeedback, listKnowledge, listKnowledgeCandidates, listSessionMemory, promoteKnowledgeCandidate, proposeKnowledgeCandidate, revokeKnowledgeEntry } from '../src/knowledge/knowledge';
 import { serviceReadiness } from '../src/operations/readiness';
 import { metricsSnapshot, observeHttpRequest } from '../src/operations/telemetry';
 import { listProviderReadiness } from '../src/providers/providers';
-import { commandRun, createSession, getRun, getSession, listBacklog, listProjects, listRuns, listSessions, planSession, startRun } from '../src/runs/runs';
+import { commandRun, createSession, getRun, getSession, listBacklog, listProjects, listRuns, listSessions, planSession, reviseSession, startRun } from '../src/runs/runs';
 import { publishTicketToGitHubIssue } from '../src/ticketing/github-issues';
 import { assignTicket, findTicket, getWorkerContext, launchWorkflow, listTickets, saveSpecification, setTicketRisk, transitionTicket, validateSpecification } from '../src/tickets/tickets';
 
@@ -78,12 +80,22 @@ export default async function handler(request: IncomingMessage, response: Server
       return sendJson(response, 200, await listBacklog(prisma, decodeURIComponent(projectBacklogMatch[1])));
     }
 
+    const projectApprovalPolicyMatch = path.match(/^\/api\/projects\/([^/]+)\/approval-policy$/);
+    if (method === 'PATCH' && projectApprovalPolicyMatch) {
+      return sendJson(response, 200, await updateProjectApprovalPolicy(
+        prisma,
+        decodeURIComponent(projectApprovalPolicyMatch[1]),
+        await readJsonWithAuthenticatedActor(request, authSession, 'actorId'),
+      ));
+    }
+
     const sessionMatch = path.match(/^\/api\/sessions\/([^/]+)(?:\/([^/]+))?$/);
     if (sessionMatch) {
       const id = decodeURIComponent(sessionMatch[1]);
       const action = sessionMatch[2];
       if (method === 'GET' && !action) return sendJson(response, 200, await getSession(prisma, id, requiredQuery(url, 'projectId')));
       if (method === 'POST' && action === 'plan') return sendJson(response, 200, await planSession(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
+      if (method === 'POST' && action === 'revisions') return sendJson(response, 200, await reviseSession(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
       if (method === 'POST' && action === 'runs') return sendJson(response, 201, await startRun(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
     }
 
@@ -136,6 +148,7 @@ export default async function handler(request: IncomingMessage, response: Server
       if (method === 'PUT' && action === 'specification') return sendJson(response, 200, await saveSpecification(prisma, id, await readJson(request), actorId));
       if (method === 'POST' && action === 'validations') return sendJson(response, 200, await validateSpecification(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'validatorId')));
       if (method === 'POST' && action === 'workflows') return sendJson(response, 200, await launchWorkflow(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
+      if (method === 'POST' && action === 'workflow-reconciliation') return sendJson(response, 200, await reconcileTicketWorkflow(prisma, id, await readJsonWithAuthenticatedActor(request, authSession, 'actorId')));
       if (method === 'POST' && action === 'github-issue') return sendJson(response, 200, await publishTicketToGitHubIssue(prisma, id, actorId));
     }
 

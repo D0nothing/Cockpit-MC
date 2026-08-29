@@ -181,7 +181,11 @@ export function parseApprovalDecision(value: unknown): ApprovalDecision {
   const input = record(value, 'ApprovalDecision');
   const requesterId = identifier(input.requesterId, 'ApprovalDecision.requesterId');
   const approverId = identifier(input.approverId, 'ApprovalDecision.approverId');
-  if (requesterId === approverId) fail('ApprovalDecision.approverId must differ from requesterId');
+  const approvalMode = optionalChoice(input.approvalMode, 'ApprovalDecision.approvalMode', ['FOUR_EYES', 'SOLO_DEV']);
+  const soloDevConfirmed = optionalBoolean(input.soloDevConfirmed, 'ApprovalDecision.soloDevConfirmed');
+  if (requesterId === approverId && (approvalMode !== 'SOLO_DEV' || soloDevConfirmed !== true)) {
+    fail('ApprovalDecision.approverId must differ from requesterId unless SOLO_DEV is explicitly confirmed');
+  }
   return {
     ...base(input, 'ApprovalDecision'),
     approvalId: identifier(input.approvalId, 'ApprovalDecision.approvalId'),
@@ -192,6 +196,8 @@ export function parseApprovalDecision(value: unknown): ApprovalDecision {
     targetVersion: integer(input.targetVersion, 'ApprovalDecision.targetVersion', 1, 1_000_000),
     requesterId,
     approverId,
+    approvalMode,
+    soloDevConfirmed,
     result: choice(input.result, 'ApprovalDecision.result', ['approved', 'rejected', 'changes_requested', 'expired']),
     reason: text(input.reason, 'ApprovalDecision.reason', 2_000),
     decidedAt: date(input.decidedAt, 'ApprovalDecision.decidedAt'),
@@ -387,6 +393,16 @@ function integer(value: unknown, path: string, min: number, max: number): number
 function choice<const T extends readonly string[]>(value: unknown, path: string, allowed: T): T[number] {
   if (typeof value !== 'string' || !allowed.includes(value)) fail(`${path} must be one of ${allowed.join(', ')}`);
   return value as T[number];
+}
+
+function optionalChoice<const T extends readonly string[]>(value: unknown, path: string, allowed: T): T[number] | undefined {
+  return value === undefined ? undefined : choice(value, path, allowed);
+}
+
+function optionalBoolean(value: unknown, path: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') fail(`${path} must be a boolean`);
+  return value;
 }
 
 function date(value: unknown, path: string): string {
