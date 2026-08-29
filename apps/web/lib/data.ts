@@ -171,6 +171,13 @@ export async function updateProjectApprovalPolicy(
   return projectSummary(value);
 }
 
+export async function reconcileTicketWorkflow(ticketId: string, projectId: string, actorId: string, pullRequestUrl: string): Promise<void> {
+  await apiRequest(`/tickets/${encodeURIComponent(ticketId)}/workflow-reconciliation`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, actorId, pullRequestUrl }),
+  });
+}
+
 export async function getRuns(projectId: string): Promise<RunSummary[]> {
   const value = await apiRequest(`/runs?projectId=${encodeURIComponent(projectId)}`);
   if (!Array.isArray(value)) throw new Error('Run list is invalid');

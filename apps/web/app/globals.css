@@ -338,6 +338,45 @@ main {
   align-items: center;
   gap: 7px;
 }
+.policy-form {
+  flex-basis: 100%;
+  display: grid;
+  gap: 10px;
+  min-width: min(520px, 100%);
+  padding-top: 10px;
+}
+.policy-form label,
+.reconciliation-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.policy-form textarea,
+.reconciliation-form input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  padding: 10px 12px;
+}
+.policy-form textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+.confirmation-row {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 9px !important;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.confirmation-row input {
+  margin-top: 2px;
+}
 .policy-line {
   margin-top: 8px !important;
 }
@@ -998,6 +1037,27 @@ tbody tr:hover {
 }
 .approval-actions button {
   border: 0;
+}
+.reconciliation-panel {
+  display: grid;
+  gap: 12px;
+}
+.reconciliation-panel > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.reconciliation-panel a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.reconciliation-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: end;
+  gap: 10px;
 }
 .run-card small {
   overflow-wrap: anywhere;

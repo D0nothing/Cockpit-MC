@@ -11,6 +11,7 @@ export default function ApprovalsPage({ initialProjectId, login }: { initialProj
   const [refreshToken, setRefreshToken] = useState(0);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
+  const [confirmedApprovalId, setConfirmedApprovalId] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -38,8 +39,12 @@ export default function ApprovalsPage({ initialProjectId, login }: { initialProj
       const project = projects.find(({ id }) => id === projectId);
       const isSelfDecision = approval?.requesterId.toLowerCase() === login.toLowerCase();
       const soloDevConfirmation = Boolean(isSelfDecision && project?.effectiveApprovalMode === 'SOLO_DEV');
-      if (soloDevConfirmation && !window.confirm('Confirmer cette auto-approbation SOLO_DEV. La sortie restera limitée à une branche codex/*, une pull request brouillon et des preuves de tests, sans production ni service live.')) return;
+      if (soloDevConfirmation && confirmedApprovalId !== approvalId) {
+        setError('Confirmez explicitement les garde-fous SOLO_DEV avant cette auto-approbation.');
+        return;
+      }
       await decideApproval(projectId, approvalId, login, result, soloDevConfirmation);
+      setConfirmedApprovalId('');
       setRefreshToken((value) => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'La décision a échoué.');
@@ -60,15 +65,17 @@ export default function ApprovalsPage({ initialProjectId, login }: { initialProj
       {projects.find(({ id }) => id === projectId)?.effectiveApprovalMode === 'SOLO_DEV' && <div className="notice warning">SOLO_DEV actif : l’auto-approbation est autorisée uniquement pour une proposition de développement testée sur branche <code>codex/*</code> et pull request brouillon. Production, fusion et services live restent bloqués.</div>}
       {error && <div className="notice error">{error}</div>}
       {!error && approvals.length === 0 && <section className="panel state-panel"><h2>Aucune validation</h2><p>Les demandes sensibles et critiques apparaîtront ici après planification.</p></section>}
-      <div className="cards-list approval-list">{approvals.map((approval) => (
-        <article className={`panel approval-card ${approval.riskLevel}`} key={approval.id}>
+      <div className="cards-list approval-list">{approvals.map((approval) => {
+        const soloSelfDecision = approval.requesterId.toLowerCase() === login.toLowerCase() && projects.find(({ id }) => id === projectId)?.effectiveApprovalMode === 'SOLO_DEV';
+        return <article className={`panel approval-card ${approval.riskLevel}`} key={approval.id}>
           <div className="approval-card-head"><div><small>{approval.project.name} · demandeur {approval.requesterId}</small><h3>{approval.session.objective}</h3></div><span className={`status ${approval.status === 'approved' ? 'green' : approval.status === 'pending' ? 'amber' : 'neutral'}`}>{approval.status}</span></div>
           <p>{approval.decisions.filter(({ result }) => result === 'approved').length}/{approval.requiredApprovals} approbations · risque {approval.riskLevel} · expiration {new Date(approval.expiresAt).toLocaleString('fr-FR')}</p>
           <ul>{approval.macroTask.acceptanceCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul>
           {approval.decisions.length > 0 && <div className="approval-decisions">{approval.decisions.map((decision) => <span key={decision.id}><Check size={13} />{decision.approverId}</span>)}</div>}
-          {approval.status === 'pending' && <div className="approval-actions"><button className="primary" type="button" disabled={busyId === approval.id} onClick={() => void decide(approval.id, 'approved')}><ShieldCheck size={15} />Approuver</button><button className="secondary" type="button" disabled={busyId === approval.id} onClick={() => void decide(approval.id, 'rejected')}><ShieldAlert size={15} />Refuser</button></div>}
+          {approval.status === 'pending' && soloSelfDecision && <label className="confirmation-row"><input type="checkbox" checked={confirmedApprovalId === approval.id} onChange={(event) => setConfirmedApprovalId(event.target.checked ? approval.id : '')} /><span>Je confirme l’auto-approbation SOLO_DEV : branche <code>codex/*</code>, PR brouillon et tests uniquement, sans production, fusion ni service live.</span></label>}
+          {approval.status === 'pending' && <div className="approval-actions"><button className="primary" type="button" disabled={busyId === approval.id || Boolean(soloSelfDecision && confirmedApprovalId !== approval.id)} onClick={() => void decide(approval.id, 'approved')}><ShieldCheck size={15} />Approuver</button><button className="secondary" type="button" disabled={busyId === approval.id} onClick={() => void decide(approval.id, 'rejected')}><ShieldAlert size={15} />Refuser</button></div>}
         </article>
-      ))}</div>
+      })}</div>
     </div>
   );
 }
