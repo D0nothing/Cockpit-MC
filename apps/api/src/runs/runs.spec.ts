@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalRequirement, buildDeterministicPlan, deriveRunState, scheduleWaves } from './runs';
+import { approvalRequirement, buildDeterministicPlan, deriveRunState, reconciledWorkflowTaskIds, scheduleWaves } from './runs';
 
 describe('deterministic coordinator', () => {
   it('builds a valid graph from input-specific epics and tickets', () => {
@@ -59,6 +59,22 @@ describe('bounded scheduler', () => {
 describe('event read model', () => {
   it('derives the current run state from ordered events', () => {
     expect(deriveRunState([{ type: 'run.queued' }, { type: 'run.running' }, { type: 'run.review_required' }])).toBe('review');
+  });
+});
+
+describe('existing workflow reconciliation', () => {
+  it('reuses only server-verified successful evidence and preserves dependencies', () => {
+    const verified = { branchName: 'codex/ticket-1000', pullRequestUrl: 'https://github.com/example/repo/pull/1', headCommitSha: 'a'.repeat(40), ciStatus: 'success', reconciledAt: new Date() };
+    const tickets = new Map([
+      ['scope', { workflow: verified }],
+      ['implementation', { workflow: { ...verified, pullRequestUrl: 'https://github.com/example/repo/pull/2' } }],
+      ['unverified', { workflow: { ...verified, reconciledAt: null } }],
+    ]);
+    expect([...reconciledWorkflowTaskIds([
+      { taskId: 'scope', dependsOn: [] },
+      { taskId: 'implementation', dependsOn: ['scope'] },
+      { taskId: 'unverified', dependsOn: [] },
+    ], tickets)]).toEqual(['scope', 'implementation']);
   });
 });
 

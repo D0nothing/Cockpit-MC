@@ -1,6 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { recordAudit } from '../audit/audit';
+import { assertSoloDevelopmentBoundary, boundedSoloDevelopmentExecution } from '../control/project-approval-policy';
 import { dispatchCodexTask } from '../github';
 import { cleanPromptValue, HttpError, requireDatabase } from '../http';
 import { activeKnowledgeContext } from '../knowledge/knowledge';
@@ -54,6 +55,7 @@ export async function dispatchRunTask(prisma: PrismaClient, runId: string, taskI
   if (refusal === 'state') throw new HttpError(409, `Task cannot be dispatched from ${task.state}`);
   if (refusal === 'dependencies') throw new HttpError(409, 'Task dependencies are not completed');
   const branchName = `codex/run-${run.id.slice(-12)}-${slug(task.taskId)}`.slice(0, 100);
+  assertSoloDevelopmentBoundary(run.project, boundedSoloDevelopmentExecution(branchName));
 
   const dispatch = await prisma.$transaction(async (tx) => {
     const created = await tx.taskDispatch.create({ data: { projectId, runTaskId: task.id, provider, idempotencyKey, actorId, branchName } });

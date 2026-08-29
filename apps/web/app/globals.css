@@ -326,6 +326,26 @@ main {
   line-height: 1.6;
   margin: 0;
 }
+.project-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.project-actions .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.policy-line {
+  margin-top: 8px !important;
+}
+.notice.warning {
+  background: #fff7df;
+  border-color: #ead7a0;
+  color: #765b1f;
+}
 .placeholder {
   max-width: 680px;
   margin: 80px auto;

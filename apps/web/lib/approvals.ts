@@ -23,10 +23,10 @@ export async function getApprovals(projectId: string): Promise<ApprovalReadModel
   return value.map(approvalReadModel);
 }
 
-export async function decideApproval(projectId: string, approvalId: string, approverId: string, result: ApprovalResult): Promise<ApprovalReadModel> {
+export async function decideApproval(projectId: string, approvalId: string, approverId: string, result: ApprovalResult, soloDevConfirmation: boolean): Promise<ApprovalReadModel> {
   const value = await apiRequest(`/approvals/${encodeURIComponent(approvalId)}/decisions`, {
     method: 'POST',
-    body: JSON.stringify({ projectId, approverId, result, reason: result === 'approved' ? 'Critères et risques vérifiés dans le cockpit.' : 'Corrections demandées depuis le cockpit.' }),
+    body: JSON.stringify({ projectId, approverId, result, soloDevConfirmation, reason: result === 'approved' ? 'Critères et risques vérifiés dans le cockpit.' : 'Corrections demandées depuis le cockpit.' }),
   });
   return approvalReadModel(value);
 }

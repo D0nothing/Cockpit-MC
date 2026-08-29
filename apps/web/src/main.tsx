@@ -72,7 +72,7 @@ function App() {
           </button>
         </div>
       </aside>
-      <main>{route(path, setPath)}</main>
+      <main>{route(path, setPath, session.login)}</main>
     </div>
   );
 }
@@ -257,7 +257,7 @@ function useAuthentication() {
   return { session, error, refresh, signOut };
 }
 
-function route(pathWithSearch: string, onNavigate: (path: string) => void) {
+function route(pathWithSearch: string, onNavigate: (path: string) => void, login: string) {
   const url = new URL(pathWithSearch, window.location.origin);
   const path = url.pathname;
   if (path === '/') return <React.Suspense fallback={<StatePanel title="Chargement du cockpit…" description="Lecture des indicateurs persistés." />}><LazyDashboardPage onNavigate={onNavigate} /></React.Suspense>;
@@ -268,12 +268,12 @@ function route(pathWithSearch: string, onNavigate: (path: string) => void) {
   if (path === '/specifications') return <SpecificationsPage onNavigate={onNavigate} />;
   if (path === '/workflows') return <React.Suspense fallback={<StatePanel title="Chargement des runs…" description="Ouverture du module d’exécution." />}><LazyWorkflowsPage onNavigate={onNavigate} /></React.Suspense>;
   if (path === '/backlog') return <React.Suspense fallback={<StatePanel title="Chargement du backlog…" description="Lecture des epics et tickets persistés." />}><LazyBacklogPage initialProjectId={url.searchParams.get('projectId') ?? ''} /></React.Suspense>;
-  if (path === '/approvals') return <React.Suspense fallback={<StatePanel title="Chargement des validations…" description="Ouverture du module de contrôle humain." />}><LazyApprovalsPage initialProjectId={url.searchParams.get('projectId') ?? ''} /></React.Suspense>;
+  if (path === '/approvals') return <React.Suspense fallback={<StatePanel title="Chargement des validations…" description="Ouverture du module de contrôle humain." />}><LazyApprovalsPage initialProjectId={url.searchParams.get('projectId') ?? ''} login={login} /></React.Suspense>;
   if (path === '/sessions/new') return <NewSessionPage projectId={url.searchParams.get('projectId') ?? ''} onNavigate={onNavigate} />;
   if (path.startsWith('/runs/')) return <React.Suspense fallback={<StatePanel title="Chargement du run…" description="Ouverture du module de supervision." />}><LazyRunDetailPage id={decodeURIComponent(path.split('/')[2])} projectId={url.searchParams.get('projectId') ?? ''} onNavigate={onNavigate} /></React.Suspense>;
   if (path === '/knowledge') return <React.Suspense fallback={<StatePanel title="Chargement de la Knowledge Base…" description="Lecture des feedbacks, candidats et entrées actives." />}><LazyKnowledgePage initialProjectId={url.searchParams.get('projectId') ?? ''} initialFeedbackId={url.searchParams.get('feedbackId') ?? ''} /></React.Suspense>;
   if (path === '/audit') return <AuditPage />;
-  if (path === '/projects') return <React.Suspense fallback={<StatePanel title="Chargement des projets…" description="Ouverture du registre partagé." />}><LazyProjectsPage onNavigate={onNavigate} /></React.Suspense>;
+  if (path === '/projects') return <React.Suspense fallback={<StatePanel title="Chargement des projets…" description="Ouverture du registre partagé." />}><LazyProjectsPage onNavigate={onNavigate} login={login} /></React.Suspense>;
   if (path === '/docs') return <DocsPage onNavigate={onNavigate} />;
   if (path === '/settings') return <SettingsPage onNavigate={onNavigate} />;
   return <PlaceholderPage eyebrow="404" title="Page introuvable" description="Cette route n’existe pas encore dans le cockpit." primary={{ label: 'Retour au dashboard', href: '/' }} onNavigate={onNavigate} />;

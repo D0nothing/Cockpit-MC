@@ -4,11 +4,10 @@ import type { ProjectSummary } from '@software-factory/contracts';
 import { decideApproval, getApprovals, type ApprovalReadModel } from '../../lib/approvals';
 import { getProjects } from '../../lib/data';
 
-export default function ApprovalsPage({ initialProjectId }: { initialProjectId: string }) {
+export default function ApprovalsPage({ initialProjectId, login }: { initialProjectId: string; login: string }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [projectId, setProjectId] = useState(initialProjectId);
   const [approvals, setApprovals] = useState<ApprovalReadModel[]>([]);
-  const [approverId, setApproverId] = useState('user-marc');
   const [refreshToken, setRefreshToken] = useState(0);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
@@ -35,7 +34,12 @@ export default function ApprovalsPage({ initialProjectId }: { initialProjectId: 
     setBusyId(approvalId);
     setError('');
     try {
-      await decideApproval(projectId, approvalId, approverId, result);
+      const approval = approvals.find(({ id }) => id === approvalId);
+      const project = projects.find(({ id }) => id === projectId);
+      const isSelfDecision = approval?.requesterId.toLowerCase() === login.toLowerCase();
+      const soloDevConfirmation = Boolean(isSelfDecision && project?.effectiveApprovalMode === 'SOLO_DEV');
+      if (soloDevConfirmation && !window.confirm('Confirmer cette auto-approbation SOLO_DEV. La sortie restera limitée à une branche codex/*, une pull request brouillon et des preuves de tests, sans production ni service live.')) return;
+      await decideApproval(projectId, approvalId, login, result, soloDevConfirmation);
       setRefreshToken((value) => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'La décision a échoué.');
@@ -51,10 +55,9 @@ export default function ApprovalsPage({ initialProjectId }: { initialProjectId: 
         <label className="project-picker">Projet
           <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>
         </label>
-        <label className="project-picker">Identité de validation
-          <select value={approverId} onChange={(event) => setApproverId(event.target.value)}><option value="user-marc">Marc Leroy</option><option value="user-sophie">Sophie Bernard</option></select>
-        </label>
+        <span className="project-picker">Identité authentifiée <strong>{login}</strong></span>
       </div>
+      {projects.find(({ id }) => id === projectId)?.effectiveApprovalMode === 'SOLO_DEV' && <div className="notice warning">SOLO_DEV actif : l’auto-approbation est autorisée uniquement pour une proposition de développement testée sur branche <code>codex/*</code> et pull request brouillon. Production, fusion et services live restent bloqués.</div>}
       {error && <div className="notice error">{error}</div>}
       {!error && approvals.length === 0 && <section className="panel state-panel"><h2>Aucune validation</h2><p>Les demandes sensibles et critiques apparaîtront ici après planification.</p></section>}
       <div className="cards-list approval-list">{approvals.map((approval) => (

@@ -10,18 +10,20 @@ import {
   type WorkerRunState,
 } from '@software-factory/contracts';
 import { recordAudit } from '../audit/audit';
+import { projectApprovalPolicyReadModel, projectPolicySelect } from '../control/project-approval-policy';
 import { HttpError, requireDatabase } from '../http';
 import { buildRequestPlan, requestPlanToTaskNodes } from '../planning/planner';
 
 const simulatorCapacity = 2;
 const defaultBudget = { maxDurationMs: 300_000, maxCostCents: 0, maxContextTokens: 20_000, maxConcurrency: simulatorCapacity };
 
-export function listProjects(prisma: PrismaClient) {
+export async function listProjects(prisma: PrismaClient) {
   requireDatabase();
-  return prisma.project.findMany({
+  const projects = await prisma.project.findMany({
     orderBy: { name: 'asc' },
-    select: { id: true, name: true, slug: true, status: true, profileVersion: true, githubOwner: true, githubRepository: true },
+    select: projectPolicySelect,
   });
+  return projects.map((project) => projectApprovalPolicyReadModel(project));
 }
 
 export function listSessions(prisma: PrismaClient, projectId: string) {
@@ -286,7 +288,7 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
     where: { id: sessionId, projectId, project: { status: 'active' } },
     include: {
       macroTasks: { orderBy: { version: 'desc' }, take: 1, include: { graph: true, approvalRequest: true } },
-      plannedTickets: { select: { id: true, plannerKey: true } },
+      plannedTickets: { select: { id: true, plannerKey: true, workflow: true } },
     },
   });
   const macroTask = session?.macroTasks[0];
@@ -294,13 +296,18 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
   if (session.state !== 'ready') throw new HttpError(409, `Session cannot start from ${session.state}`);
   if (macroTask.requiredApprovals > 0 && macroTask.approvalRequest?.status !== 'approved') throw new HttpError(403, 'Required human approval is missing');
   const graph = parsePersistedGraph(projectId, sessionId, macroTask.id, macroTask.version, macroTask.graph.id, macroTask.graph.nodes);
-  const ticketIds = new Map(session.plannedTickets.flatMap((ticket) => ticket.plannerKey ? [[ticket.plannerKey, ticket.id] as const] : []));
+  const ticketsByPlannerKey = new Map(session.plannedTickets.flatMap((ticket) => ticket.plannerKey ? [[ticket.plannerKey, ticket] as const] : []));
+  const ticketIds = new Map([...ticketsByPlannerKey].map(([key, ticket]) => [key, ticket.id] as const));
   if (graph.nodes.some((node) => !ticketIds.has(node.taskId))) throw new HttpError(409, 'Every run task must reference a planned ticket');
+  const reconciledTaskIds = reconciledWorkflowTaskIds(graph.nodes, ticketsByPlannerKey);
   const correlationId = `correlation-${randomUUID()}`;
 
   const run = await prisma.$transaction(async (tx) => {
+    const allReconciled = reconciledTaskIds.size === graph.nodes.length;
+    const initialState = allReconciled ? 'review' as const : reconciledTaskIds.size > 0 ? 'running' as const : 'queued' as const;
+    const eventCount = 1 + (reconciledTaskIds.size > 0 ? 1 : 0) + reconciledTaskIds.size + (allReconciled ? 1 : 0);
     const created = await tx.executionRun.create({
-      data: { projectId, sessionId, macroTaskId: macroTask.id, graphId: graph.graphId, correlationId, idempotencyKey, state: 'queued', lastSequence: 1 },
+      data: { projectId, sessionId, macroTaskId: macroTask.id, graphId: graph.graphId, correlationId, idempotencyKey, state: initialState, lastSequence: eventCount },
     });
     await tx.runTask.createMany({
       data: graph.nodes.map((node) => ({
@@ -313,7 +320,7 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
         roleCapability: node.roleCapability,
         complexity: node.complexity,
         dependsOn: node.dependsOn,
-        state: node.dependsOn.length === 0 ? 'ready' : 'blocked',
+        state: reconciledTaskIds.has(node.taskId) ? 'completed' : node.dependsOn.every((dependency) => reconciledTaskIds.has(dependency)) ? 'ready' : 'blocked',
         maxAttempts: node.maxAttempts,
         definitionOfReady: node.definitionOfReady,
         definitionOfDone: node.definitionOfDone,
@@ -323,11 +330,63 @@ export async function startRun(prisma: PrismaClient, sessionId: string, body: un
     await tx.runEvent.create({
       data: eventData(created.id, projectId, sessionId, correlationId, 1, 'run.queued', 'human', actorId, { macroTaskId: macroTask.id, graphId: graph.graphId }),
     });
-    await tx.workSession.update({ where: { id: sessionId }, data: { state: 'running', version: { increment: 1 } } });
+    let sequence = 1;
+    if (reconciledTaskIds.size > 0) {
+      sequence += 1;
+      await tx.runEvent.create({ data: eventData(created.id, projectId, sessionId, correlationId, sequence, 'run.running', 'human', actorId, { reconciledTasks: reconciledTaskIds.size }) });
+    }
+    for (const taskId of reconciledTaskIds) {
+      const workflow = ticketsByPlannerKey.get(taskId)?.workflow;
+      if (!workflow?.pullRequestUrl || !workflow.headCommitSha) continue;
+      sequence += 1;
+      await tx.runArtifact.create({
+        data: {
+          id: `artifact-${randomUUID()}`,
+          projectId,
+          sessionId,
+          runId: created.id,
+          taskId,
+          kind: 'pull_request',
+          uri: workflow.pullRequestUrl,
+          mediaType: 'text/uri-list',
+          contentHash: createHash('sha256').update(workflow.headCommitSha).digest('hex'),
+        },
+      });
+      await tx.runEvent.create({ data: eventData(created.id, projectId, sessionId, correlationId, sequence, 'task.reconciled', 'human', actorId, { taskId, pullRequestUrl: workflow.pullRequestUrl, headCommitSha: workflow.headCommitSha }) });
+    }
+    if (allReconciled) {
+      sequence += 1;
+      await tx.runEvent.create({ data: eventData(created.id, projectId, sessionId, correlationId, sequence, 'run.review_required', 'human', actorId, { reconciledTasks: reconciledTaskIds.size }) });
+    }
+    await tx.workSession.update({ where: { id: sessionId }, data: { state: allReconciled ? 'review' : 'running', version: { increment: 1 } } });
     return created;
   });
-  await recordAudit(prisma, { projectId, actorId, action: 'run.started', targetType: 'run', targetId: run.id, metadata: { sessionId, correlationId } });
+  await recordAudit(prisma, { projectId, actorId, action: 'run.started', targetType: 'run', targetId: run.id, metadata: { sessionId, correlationId, reconciledTasks: [...reconciledTaskIds] } });
   return getRun(prisma, run.id, projectId);
+}
+
+export function reconciledWorkflowTaskIds(
+  nodes: readonly { taskId: string; dependsOn: string[] }[],
+  tickets: ReadonlyMap<string, { workflow: { branchName: string | null; pullRequestUrl: string | null; headCommitSha: string | null; ciStatus: string | null; reconciledAt: Date | null } | null }>,
+): Set<string> {
+  const completed = new Set<string>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      if (completed.has(node.taskId) || !node.dependsOn.every((dependency) => completed.has(dependency))) continue;
+      const workflow = tickets.get(node.taskId)?.workflow;
+      const valid = workflow?.ciStatus === 'success'
+        && workflow.reconciledAt !== null
+        && Boolean(workflow.pullRequestUrl)
+        && Boolean(workflow.headCommitSha && /^[a-f0-9]{40}$/i.test(workflow.headCommitSha))
+        && Boolean(workflow.branchName && /^codex\/[A-Za-z0-9._/-]{1,90}$/.test(workflow.branchName));
+      if (!valid) continue;
+      completed.add(node.taskId);
+      changed = true;
+    }
+  }
+  return completed;
 }
 
 export async function getRun(prisma: PrismaClient, runId: string, projectId: string) {

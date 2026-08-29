@@ -150,6 +150,27 @@ export async function getProjects(): Promise<ProjectSummary[]> {
   return value.map(projectSummary);
 }
 
+export async function updateProjectApprovalPolicy(
+  project: ProjectSummary,
+  actorId: string,
+  approvalMode: ProjectSummary['approvalMode'],
+  reason: string,
+  expiresAt?: string,
+): Promise<ProjectSummary> {
+  const value = await apiRequest(`/projects/${encodeURIComponent(project.id)}/approval-policy`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      actorId,
+      approvalMode,
+      expectedVersion: project.approvalPolicyVersion,
+      reason,
+      confirmation: approvalMode === 'SOLO_DEV' ? 'ENABLE SOLO_DEV' : 'DISABLE SOLO_DEV',
+      expiresAt,
+    }),
+  });
+  return projectSummary(value);
+}
+
 export async function getRuns(projectId: string): Promise<RunSummary[]> {
   const value = await apiRequest(`/runs?projectId=${encodeURIComponent(projectId)}`);
   if (!Array.isArray(value)) throw new Error('Run list is invalid');
@@ -218,6 +239,13 @@ function projectSummary(value: unknown): ProjectSummary {
     profileVersion: integer(input.profileVersion, 'Project.profileVersion'),
     githubOwner: string(input.githubOwner, 'Project.githubOwner'),
     githubRepository: string(input.githubRepository, 'Project.githubRepository'),
+    approvalMode: choice(input.approvalMode, 'Project.approvalMode', ['FOUR_EYES', 'SOLO_DEV']),
+    effectiveApprovalMode: choice(input.effectiveApprovalMode, 'Project.effectiveApprovalMode', ['FOUR_EYES', 'SOLO_DEV']),
+    approvalPolicyVersion: integer(input.approvalPolicyVersion, 'Project.approvalPolicyVersion'),
+    soloDevExpiresAt: nullableString(input.soloDevExpiresAt, 'Project.soloDevExpiresAt'),
+    approvalPolicyUpdatedAt: nullableString(input.approvalPolicyUpdatedAt, 'Project.approvalPolicyUpdatedAt'),
+    approvalPolicyUpdatedBy: nullableString(input.approvalPolicyUpdatedBy, 'Project.approvalPolicyUpdatedBy'),
+    approvalPolicyReason: nullableString(input.approvalPolicyReason, 'Project.approvalPolicyReason'),
   };
 }
 
@@ -280,4 +308,8 @@ export function integer(value: unknown, path: string): number {
 export function choice<const T extends readonly string[]>(value: unknown, path: string, choices: T): T[number] {
   if (typeof value !== 'string' || !(choices as readonly string[]).includes(value)) throw new Error(`${path} is invalid`);
   return value as T[number];
+}
+
+function nullableString(value: unknown, path: string): string | null {
+  return value === null ? null : string(value, path);
 }

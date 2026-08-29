@@ -64,6 +64,11 @@ enum ProjectStatus {
   archived
 }
 
+enum ProjectApprovalMode {
+  FOUR_EYES
+  SOLO_DEV
+}
+
 enum ExternalSyncState {
   pending
   succeeded
@@ -192,6 +197,12 @@ model Project {
   githubRepository             String
   confluenceSpaceKey           String?
   requireSecondaryForSensitive Boolean              @default(true)
+  approvalMode                 ProjectApprovalMode  @default(FOUR_EYES)
+  approvalPolicyVersion        Int                   @default(1)
+  soloDevExpiresAt             DateTime?
+  approvalPolicyUpdatedBy      String?
+  approvalPolicyUpdatedAt      DateTime?
+  approvalPolicyReason         String?               @db.Text
   tickets                      Ticket[]
   epics                        Epic[]
   workSessions                 WorkSession[]
@@ -322,8 +333,11 @@ model WorkflowRun {
   githubRunId    String?
   branchName     String?
   pullRequestUrl String?
+  headCommitSha  String?
   ciStatus       String?
   agentReport    String?      @db.Text
+  reconciledAt   DateTime?
+  reconciledBy   String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 }

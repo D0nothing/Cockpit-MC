@@ -113,6 +113,22 @@ adressé par SHA-256 avant de terminer. La GitHub Action n'a pas la permission d
 merger, ouvre toujours une pull request brouillon et renvoie son résultat au
 cockpit. Le simulateur local suit le même contrat sans effet externe.
 
+La politique d'approbation est versionnée par projet. `FOUR_EYES` reste la valeur
+par défaut et interdit toute décision du demandeur sur sa propre approbation.
+L'administrateur GitHub allowlisté peut activer explicitement `SOLO_DEV`, avec un
+motif, une confirmation et une expiration facultative de trente jours au maximum.
+Cette exception ne vaut que pour le projet concerné et un quorum d'une personne.
+Elle est auditée, visible et révocable. L'enveloppe d'exécution reste
+techniquement bornée à une branche `codex/*`, une pull request brouillon et des
+tests : fusion automatique, production, secrets ou fournisseurs live, facturation
+et impression restent refusés.
+
+Une pull request existante peut être réconciliée sans nouveau dispatch. L'API
+vérifie côté serveur le dépôt enregistré, l'état ouvert et brouillon, la branche
+`codex/*`, le SHA de tête et le succès de tous les checks GitHub. Le reçu durable
+permet à un run ultérieur de marquer le ticket correspondant comme déjà réalisé,
+avec un artefact et un événement d'audit, sans créer une seconde branche ni PR.
+
 Un `FeedbackRecord` doit référencer un artefact du même projet, de la même session
 et du même run. Il alimente d'abord un `SessionMemoryItem` à TTL et quota. Seul un
 `KnowledgeCandidate` approuvé peut créer une `KnowledgeEntry`; portée, provenance,

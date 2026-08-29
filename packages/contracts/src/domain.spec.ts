@@ -208,5 +208,6 @@ describe('canonical domain contracts', () => {
 
   it('rejects self approval', () => {
     expect(() => parseApprovalDecision({ ...approval, approverId: approval.requesterId })).toThrow('must differ');
+    expect(parseApprovalDecision({ ...approval, approverId: approval.requesterId, approvalMode: 'SOLO_DEV', soloDevConfirmed: true })).toMatchObject({ approvalMode: 'SOLO_DEV', soloDevConfirmed: true });
   });
 });

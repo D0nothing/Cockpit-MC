@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { recordAudit } from '../audit/audit';
 import { HttpError, requireDatabase } from '../http';
+import { assertSoloSelfApproval, boundedSoloDevelopmentExecution, effectiveApprovalMode } from './project-approval-policy';
 
 export function listApprovals(prisma: PrismaClient, projectId: string) {
   requireDatabase();
@@ -24,11 +25,23 @@ export async function decideApproval(prisma: PrismaClient, approvalId: string, b
   const approverId = bodyString(input, 'approverId', 128);
   const result = bodyChoice(input, 'result', ['approved', 'rejected', 'changes_requested']);
   const reason = bodyString(input, 'reason', 2_000);
-  const approval = await prisma.approvalRequest.findFirst({ where: { id: approvalId, projectId }, include: { decisions: true } });
+  const approval = await prisma.approvalRequest.findFirst({ where: { id: approvalId, projectId }, include: { decisions: true, project: true } });
   if (!approval) throw new HttpError(404, 'Approval request not found');
-  if (approval.requesterId === approverId) {
-    await recordAudit(prisma, { projectId, actorId: approverId, action: 'approval.self_decision_refused', targetType: 'approval', targetId: approvalId, metadata: { result } });
-    throw new HttpError(403, 'The requester cannot decide their own approval');
+  const selfDecision = approval.requesterId.toLowerCase() === approverId.toLowerCase();
+  if (selfDecision) {
+    try {
+      assertSoloSelfApproval(approval.project, approval.requiredApprovals, input.soloDevConfirmation === true);
+    } catch (error) {
+      await recordAudit(prisma, {
+        projectId,
+        actorId: approverId,
+        action: 'approval.self_decision_refused',
+        targetType: 'approval',
+        targetId: approvalId,
+        metadata: { result, configuredMode: approval.project.approvalMode, effectiveMode: effectiveApprovalMode(approval.project), policyVersion: approval.project.approvalPolicyVersion },
+      });
+      throw error;
+    }
   }
   if (approval.expiresAt.getTime() <= Date.now()) {
     await prisma.$transaction([
@@ -60,7 +73,15 @@ export async function decideApproval(prisma: PrismaClient, approvalId: string, b
     action: `approval.${result}`,
     targetType: 'approval',
     targetId: approvalId,
-    metadata: { status, approvedCount, requiredApprovals: approval.requiredApprovals },
+    metadata: {
+      status,
+      approvedCount,
+      requiredApprovals: approval.requiredApprovals,
+      selfDecision,
+      approvalMode: effectiveApprovalMode(approval.project),
+      policyVersion: approval.project.approvalPolicyVersion,
+      developmentBoundary: selfDecision ? boundedSoloDevelopmentExecution('codex/*') : null,
+    },
   });
   return getApproval(prisma, approvalId, projectId);
 }
