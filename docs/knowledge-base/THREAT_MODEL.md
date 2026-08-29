@@ -50,7 +50,7 @@ modèle et réponses fournisseur sont non fiables.
 | Mauvais compte GitHub | comparaison insensible à la casse avec `GITHUB_ALLOWED_LOGIN`, refus `403` avant émission de session | revue périodique du propriétaire du compte |
 | Fausse identité humaine | accès au cockpit borné à un compte GitHub ; l'acteur des mutations vient de la session en production | identité OIDC signée par rôle ; les identités métier saisies restent développement/pilote seulement |
 | Exception solo trop large | `FOUR_EYES` par défaut, activation administrateur versionnée par projet, motif/confirmation/expiration, quorum limité à un, enveloppe `codex/*` + PR brouillon + tests | revue périodique des exceptions actives et alerte avant expiration |
-| Réutilisation d'une fausse preuve GitHub | URL limitée au dépôt du projet, PR ouverte/brouillon, branche `codex/*`, SHA et checks relus côté serveur, reçu durable | attestation GitHub App et provenance signée |
+| Réutilisation d'une fausse preuve GitHub | URL limitée au dépôt du projet, PR ouverte/brouillon, branche `codex/*`, SHA et runs GitHub Actions `pull_request` réussis relus côté serveur, reçu durable | attestation GitHub App et provenance signée |
 | Cardinalité ou contenu dans la télémétrie | routes normalisées, durées bornées à 200 échantillons | export OTLP protégé et politique de rétention |
 
 ## Cas de refus vérifiés

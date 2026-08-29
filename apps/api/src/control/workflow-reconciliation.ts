@@ -11,7 +11,7 @@ interface PullRequestEvidence {
   url: string;
   branchName: string;
   headCommitSha: string;
-  checks: Array<{ name: string; conclusion: string }>;
+  workflowRuns: Array<{ name: string; conclusion: string }>;
 }
 
 export async function reconcileTicketWorkflow(prisma: PrismaClient, ticketId: string, body: unknown, fetcher: Fetcher = fetch) {
@@ -40,7 +40,7 @@ export async function reconcileTicketWorkflow(prisma: PrismaClient, ticketId: st
     return prisma.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: { project: true, assignee: true, specification: true, validations: { include: { validator: true } }, workflow: true } });
   }
 
-  const report = `Existing draft pull request #${evidence.number} reconciled after ${evidence.checks.length} successful checks.`;
+  const report = `Existing draft pull request #${evidence.number} reconciled after ${evidence.workflowRuns.length} successful pull request workflows.`;
   await prisma.$transaction(async (tx) => {
     await tx.workflowRun.upsert({
       where: { ticketId },
@@ -78,7 +78,7 @@ export async function reconcileTicketWorkflow(prisma: PrismaClient, ticketId: st
       pullRequestUrl: evidence.url,
       branchName: evidence.branchName,
       headCommitSha: evidence.headCommitSha,
-      checks: evidence.checks,
+      workflowRuns: evidence.workflowRuns,
       evidenceHash: createHash('sha256').update(JSON.stringify(evidence)).digest('hex'),
     },
   });
@@ -105,18 +105,24 @@ export async function fetchPullRequestEvidence(owner: string, repository: string
   if (!/^codex\/[A-Za-z0-9._/-]{1,90}$/.test(branchName) || branchName.includes('..') || branchName.includes('//') || !/^[a-f0-9]{40}$/i.test(headCommitSha)) {
     throw new HttpError(409, 'Pull request evidence is not a bounded codex/* proposal');
   }
-  const checksResponse = await fetcher(`https://api.github.com/repos/${encodedOwner}/${encodedRepository}/commits/${encodeURIComponent(headCommitSha)}/check-runs?per_page=100`, { headers, signal: AbortSignal.timeout(8_000) });
-  const checksBody = await jsonRecord(checksResponse);
-  if (!checksResponse.ok) throw new HttpError(503, `GitHub check lookup failed (${checksResponse.status})`);
-  const checks = Array.isArray(checksBody.check_runs) ? checksBody.check_runs.map((value) => {
-    const check = recordValue(value);
-    return { name: stringValue(check.name).slice(0, 200), status: stringValue(check.status), conclusion: stringValue(check.conclusion) };
-  }) : [];
-  const acceptedConclusions = new Set(['success', 'neutral', 'skipped']);
-  if (checks.length === 0 || checks.some(({ status, conclusion }) => status !== 'completed' || !acceptedConclusions.has(conclusion))) {
-    throw new HttpError(409, 'Every pull request check must be completed successfully before reconciliation');
+  const workflowRunsUrl = `https://api.github.com/repos/${encodedOwner}/${encodedRepository}/actions/runs?event=pull_request&head_sha=${encodeURIComponent(headCommitSha)}&per_page=100`;
+  const workflowRunsResponse = await fetcher(workflowRunsUrl, { headers, signal: AbortSignal.timeout(8_000) });
+  const workflowRunsBody = await jsonRecord(workflowRunsResponse);
+  if (!workflowRunsResponse.ok) throw new HttpError(503, `GitHub workflow run lookup failed (${workflowRunsResponse.status})`);
+  const workflowRuns = Array.isArray(workflowRunsBody.workflow_runs) ? workflowRunsBody.workflow_runs.map((value) => {
+    const run = recordValue(value);
+    return {
+      name: (stringValue(run.name) || stringValue(run.path)).slice(0, 200),
+      status: stringValue(run.status),
+      conclusion: stringValue(run.conclusion),
+      event: stringValue(run.event),
+      headCommitSha: stringValue(run.head_sha).toLowerCase(),
+    };
+  }).filter(({ event, headCommitSha: runHeadCommitSha }) => event === 'pull_request' && runHeadCommitSha === headCommitSha.toLowerCase()) : [];
+  if (workflowRuns.length === 0 || workflowRuns.some(({ status, conclusion }) => status !== 'completed' || conclusion !== 'success')) {
+    throw new HttpError(409, 'Every pull request workflow must be completed successfully before reconciliation');
   }
-  return { number, url: `https://github.com/${owner}/${repository}/pull/${number}`, branchName, headCommitSha: headCommitSha.toLowerCase(), checks: checks.map(({ name, conclusion }) => ({ name, conclusion })) };
+  return { number, url: `https://github.com/${owner}/${repository}/pull/${number}`, branchName, headCommitSha: headCommitSha.toLowerCase(), workflowRuns: workflowRuns.map(({ name, conclusion }) => ({ name, conclusion })) };
 }
 
 function parsePullRequestUrl(owner: string, repository: string, value: string): number {

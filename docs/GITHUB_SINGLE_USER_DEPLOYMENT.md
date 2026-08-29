@@ -81,6 +81,12 @@ GITHUB_WORKFLOW_ID=codex.yml
 ENABLED_PROVIDERS=github-actions
 ```
 
+Ce jeton d'exécution est limité au seul dépôt pilote avec **Actions en
+lecture/écriture**, **Pull requests en lecture** et la lecture obligatoire des
+métadonnées. La réconciliation vérifie une PR ouverte et brouillon, puis relit les
+exécutions GitHub Actions `pull_request` du SHA de tête. Elle n'exige pas la
+permission GitHub Checks, indisponible pour certains jetons personnels fins.
+
 Ajouter dans les secrets GitHub Actions :
 
 ```text
@@ -146,8 +152,8 @@ PR brouillon et tests obligatoires ; fusion, déploiement production, secrets li
 Stripe live, génération live et courtier d'impression live sont refusés.
 
 La réconciliation d'une PR existante exige le jeton GitHub serveur déjà borné au
-dépôt. Elle relit la PR et ses checks sans utiliser de donnée fournie comme preuve
-par le navigateur.
+dépôt. Elle relit la PR et les exécutions GitHub Actions `pull_request` du SHA de
+tête sans utiliser de donnée fournie comme preuve par le navigateur.
 
 ## Retour arrière
 
